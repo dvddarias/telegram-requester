@@ -1,0 +1,1 @@
+docker run -it --rm --workdir /bot --user $UID -v `pwd`:/bot node:13.1.0-alpine3.10 sh

@@ -1,0 +1,12 @@
+version: "2"
+
+services:
+  bot:
+    image: node:13.1.0-alpine3.10
+    container_name: bot
+    environment:
+      BOT_TOKEN: "${BOT_TOKEN}"
+    volumes:
+      - ./:/bot
+    working_dir: /bot
+    command: ["node", "index.js"]
