@@ -6,7 +6,10 @@ services:
     container_name: bot
     environment:
       BOT_TOKEN: "${BOT_TOKEN}"
+    user:
+      "1000:1000"
     volumes:
       - ./:/bot
     working_dir: /bot
     command: ["node", "index.js"]
+    # command: ["ls", "-lha"]
