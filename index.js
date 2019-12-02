@@ -3,6 +3,7 @@ const Extra = require('telegraf/extra')
 const Markup = require('telegraf/markup')
 const session = require('telegraf/session')
 const request = require("request");
+const Mustache = require("mustache");
 var fs = require('fs');
 const { reply, fork } = Telegraf
 
@@ -86,14 +87,52 @@ bot.use((ctx, next)=>{
     return next()
 })
 
+const regex = /^\/([^@\s]+)@?(?:(\S+)|)\s?([\s\S]+)?$/i;
 // iterate over requests definition
 bot_config["requests"].forEach(req => {
 
-    function action(ctx) {
-        request(req.options, (error, response, body) => {            
+    function action(ctx, next) {
+        var view = {}
+        //find the parameters in the command and fill the view object
+        if(req.params && req.params.inline){
+            const inline = req.params.inline;
+            const parts = regex.exec(ctx.message.text.trim());
+            if(parts){
+                const args = !parts[3] ? [] : parts[3].split(/\s+/).filter(arg => arg.length);
+                if(args){
+                    if(args.length<inline.length){
+                        error = "/" + req.command + " requires <b>" + inline.length + "</b> positional argument" + (inline.length > 1 ? "s:" : ":")
+                        help = ""
+                        for (let i = 0; i < inline.length; i++) {
+                            const param = inline[i];
+                            help+= "\n<b>" + param.name + "</b>: "+param.help
+                        }
+                        ctx.reply(error+help, Extra.HTML())
+                        return next()
+                    }
+                    else{
+                        for (let i = 0; i < inline.length; i++) {
+                            const param = inline[i];
+                            view[param.name] = args[i]
+                        }
+                    }
+                }
+            }
+        }
+        
+        //replace the values of the view object on the options of the request
+        var replaced = Mustache.render(JSON.stringify(req.options),view);
+
+        // DEBUG TEMPLATING
+        // console.log(view)
+        // console.log(JSON.stringify(req.options))
+        // console.log(replaced)
+
+        request(JSON.parse(replaced), (error, response, body) => {            
             message = getMessageContent(req, ctx, error, response, body, false);
             if (message != null && message!="") ctx.reply(message, Extra.HTML())            
             broadcastRequest(req, ctx, error, response, body);
+            return next()
         });
     }
 
