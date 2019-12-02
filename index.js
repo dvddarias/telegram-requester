@@ -172,7 +172,7 @@ bot_config["requests"].forEach(req => {
 function broadcastRequest(req, ctx, response, body, view){
     if (!bot_config["channels"] || bot_config["channels"].length==0) return;
     
-    message = getMessageContent(req, ctx, error, response, body, view, true);
+    message = getMessageContent(req, ctx, response, body, view, true);
     if (message == null || message=="") return;
 
     bot_config["channels"].forEach(channelId => {
