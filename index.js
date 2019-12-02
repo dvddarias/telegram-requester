@@ -5,7 +5,6 @@ const session = require('telegraf/session')
 const request = require("request");
 const Mustache = require("mustache");
 var fs = require('fs');
-const { reply, fork } = Telegraf
 
 // check and load configuration
 if (!process.env.CONFIG){
@@ -46,33 +45,17 @@ bot_config["requests"].forEach(req => {
 });
 
 //setup start and help response
-bot.start((ctx) => ctx.reply(
-    bot_config["start_message"] + "\n" + "A keyboard with available commands has been enabled",
-    Markup.keyboard(keys)
-    .oneTime()
-    .resize()
-    .extra()
-));
-
-//Fill the help with the list of commands and its description
-help = bot_config["help_message"]
-commands_help = ""
-if(help) commands_help = help + "\n\n";
-commands_help += "Commands:\n"
-
-bot_config["requests"].forEach(req => {
-    commands_help+="/" + req.command+" "+req.help+ "\n";
+bot.start((ctx) =>{
+    if (allowed(ctx)){
+        ctx.reply(
+            bot_config["start_message"] + "\n" + "A keyboard with available commands has been enabled",
+            Markup.keyboard(keys)
+            .oneTime()
+            .resize()
+            .extra()
+        )
+    }    
 });
-commands_help += "/help Show this help message.\n";
-
-
-bot.help((ctx) => ctx.reply(commands_help, 
-    Markup.keyboard(keys)
-    .oneTime()
-    .resize()
-    .extra()
-    )
-);
 
 //if it is a channel respond to /id command with the channel info
 //this is ised to fill the channels list used to broadcast the results
@@ -87,12 +70,50 @@ bot.use((ctx, next)=>{
     return next()
 })
 
-const regex = /^\/([^@\s]+)@?(?:(\S+)|)\s?([\s\S]+)?$/i;
+//control usage access to commands
+bot.use((ctx, next) => {
+    if(allowed(ctx)) next();
+})
+
+function allowed(ctx){
+    if (ctx.update && ctx.update.message.from) {
+        const user = ctx.update.message.from
+        const access = bot_config["access"]
+        if (access && access.includes(user.id+"")) return true;
+        else {
+            message = "You are not allowed to run any request using this bot.\nContact the bot manager and ask him to include you using the id: " + user.id
+            ctx.reply(message, Extra.HTML())            
+        }
+    }
+    return false;
+
+}
+
+//Fill the help with the list of commands and its description
+help = bot_config["help_message"]
+commands_help = ""
+if (help) commands_help = help + "\n\n";
+commands_help += "Commands:\n"
+
+bot_config["requests"].forEach(req => {
+    commands_help += "/" + req.command + " " + req.help + "\n";
+});
+commands_help += "/help Show this help message.\n";
+
+
+bot.help((ctx) => ctx.reply(commands_help,
+    Markup.keyboard(keys)
+    .oneTime()
+    .resize()
+    .extra()
+));
+
 // iterate over requests definition
+const regex = /^\/([^@\s]+)@?(?:(\S+)|)\s?([\s\S]+)?$/i;
 bot_config["requests"].forEach(req => {
 
     function action(ctx, next) {
-        var view = {}
+        const view = {}
         //find the parameters in the command and fill the view object
         if(req.params && req.params.inline){
             const inline = req.params.inline;
@@ -121,7 +142,7 @@ bot_config["requests"].forEach(req => {
         }
         
         //replace the values of the view object on the options of the request
-        var replaced = Mustache.render(JSON.stringify(req.options),view);
+        const replaced = Mustache.render(JSON.stringify(req.options), view);
 
         // DEBUG TEMPLATING
         // console.log(view)
@@ -129,9 +150,9 @@ bot_config["requests"].forEach(req => {
         // console.log(replaced)
 
         request(JSON.parse(replaced), (error, response, body) => {            
-            message = getMessageContent(req, ctx, error, response, body, false);
+            message = getMessageContent(req, ctx, error, response, body, view, false);
             if (message != null && message!="") ctx.reply(message, Extra.HTML())            
-            broadcastRequest(req, ctx, error, response, body);
+            broadcastRequest(req, ctx, error, response, body, view);
             return next()
         });
     }
@@ -139,10 +160,10 @@ bot_config["requests"].forEach(req => {
     bot.command(req.command, action);
 });
 
-function broadcastRequest(req, ctx, error, response, body){
+function broadcastRequest(req, ctx, error, response, body, view){
     if (!bot_config["channels"] || bot_config["channels"].length==0) return;
     
-    message = getMessageContent(req, ctx, error, response, body, true);
+    message = getMessageContent(req, ctx, error, response, body, view, true);
     if (message == null || message=="") return;
 
     bot_config["channels"].forEach(channelId => {
@@ -150,7 +171,7 @@ function broadcastRequest(req, ctx, error, response, body){
     });
 }
 
-function getMessageContent(req, ctx, error, response, body, is_broadcast){
+function getMessageContent(req, ctx, error, response, body, view, is_broadcast){
     content = is_broadcast?req.broadcast:req.response;    
     message = ""
     if(!content) return message;
@@ -159,20 +180,31 @@ function getMessageContent(req, ctx, error, response, body, is_broadcast){
         if (content.includes("username")) message += " by <b>" + getUserName(ctx) + "</b>"
         message += ".\n"
     }    
+    if (content.includes("params")) message += getParamList(view)
     if (content.includes("http_code")) message += getHttpCodeMessage(response)
     if (content.includes("headers")) message += getHttpHeaders(response)
-    if (content.includes("body") && !error) message += "\n🗄 Response:\n" + body + "\n"
+    if (content.includes("body") && !error) message += "📦 Response:\n" + body + "\n"
 
     return message
 }
 
+function getParamList(view) {
+    message = "";
+    for (const param in view) {
+        if (view.hasOwnProperty(param)) {
+            const value = view[param];
+            message += "🏷 <b>" + param + "</b>: " + value + "\n"
+        }
+    }
+    return message;
+}
 
 function getHttpHeaders(response) {
-    message="\n📋 Headers:\n";
+    message="";
     for (const header in response.headers) {
         if (response.headers.hasOwnProperty(header)) {
             const val = response.headers[header];
-            message += "<i>" + header + "</i>: " + val + "\n"
+            message += "📋 <i>" + header + "</i>: " + val + "\n"
         }
     }    
     return message;
