@@ -18,7 +18,7 @@ try {
 }
 // validate the config matches the bot configuration json schema
 bot_config = JSON.parse(data);
-console.log("Bot configuration is set to:\n" + JSON.stringify(bot_config, null, 4));
+// console.log("Bot configuration is set to:\n" + JSON.stringify(bot_config, null, 4));
 
 //if env variable is set, override config settings
 if (process.env.BOT_TOKEN) bot_config["bot_token"] = process.env.BOT_TOKEN
@@ -44,7 +44,6 @@ bot_config["requests"].forEach(req => {
     keys.push("/" + req.command);
 });
 
-
 //setup start and help response
 bot.start((ctx) => ctx.reply(
     bot_config["start_message"] + "\n" + "A keyboard with available commands has been enabled",
@@ -54,9 +53,7 @@ bot.start((ctx) => ctx.reply(
     .extra()
 ));
 
-console.log(keys);
-
-//TODO fill the help with the list of commands and its description
+//Fill the help with the list of commands and its description
 help = bot_config["help_message"]
 commands_help = ""
 if(help) commands_help = help + "\n\n";
@@ -76,20 +73,88 @@ bot.help((ctx) => ctx.reply(commands_help,
     )
 );
 
+//if it is a channel respond to /id command with the channel info
+//this is ised to fill the channels list used to broadcast the results
+bot.use((ctx, next)=>{
+    var post = ctx.update.channel_post;
+    if(!post || post.text!="/id") return next()
+    var message = "<i>" + post.chat.title + "</i> channel info:";
+    message += "\n<b>id:</b> " + post.chat.id
+    message += "\n<b>type:</b> " + (post.chat.username?"public":"private")
+    if (post.chat.username) message += "\n<b>name:</b> " + "@" + post.chat.username
+    ctx.reply(message, Extra.HTML())
+    return next()
+})
+
 // iterate over requests definition
 bot_config["requests"].forEach(req => {
+
     function action(ctx) {
-        request(req.options, (error, response, body) => {
-            if (error) {
-                console.log(error)
-                ctx.reply(error)
-            } else {
-                ctx.reply(body)
-            }
+        request(req.options, (error, response, body) => {            
+            message = getMessageContent(req, ctx, error, response, body, false);
+            if (message != null && message!="") ctx.reply(message, Extra.HTML())            
+            broadcastRequest(req, ctx, error, response, body);
         });
     }
+
     bot.command(req.command, action);
 });
+
+function broadcastRequest(req, ctx, error, response, body){
+    if (!bot_config["channels"] || bot_config["channels"].length==0) return;
+    
+    message = getMessageContent(req, ctx, error, response, body, true);
+    if (message == null || message=="") return;
+
+    bot_config["channels"].forEach(channelId => {
+        bot.telegram.sendMessage(channelId, message, Extra.HTML())
+    });
+}
+
+function getMessageContent(req, ctx, error, response, body, is_broadcast){
+    content = is_broadcast?req.broadcast:req.response;    
+    message = ""
+    if(!content) return message;
+    if(is_broadcast){
+        message += "📢 <b>/" + req.command + "</b> was called";
+        if (content.includes("username")) message += " by <b>" + getUserName(ctx) + "</b>"
+        message += ".\n"
+    }    
+    if (content.includes("http_code")) message += getHttpCodeMessage(response)
+    if (content.includes("headers")) message += getHttpHeaders(response)
+    if (content.includes("body") && !error) message += "\n🗄 Response:\n" + body + "\n"
+
+    return message
+}
+
+
+function getHttpHeaders(response) {
+    message="\n📋 Headers:\n";
+    for (const header in response.headers) {
+        if (response.headers.hasOwnProperty(header)) {
+            const val = response.headers[header];
+            message += "<i>" + header + "</i>: " + val + "\n"
+        }
+    }    
+    return message;
+}
+
+function getHttpCodeMessage(response) {
+    var code = response.statusCode;
+    var emoji = "";
+    if (code >= 500) emoji = "⛔️ "
+    else if (code >= 400) emoji = "⚠️ "
+    else if (code >= 300) emoji = "🔀 "
+    else if (code >= 200) emoji = "✅ "
+    else if (code >= 100) emoji = "ℹ️ "
+    return  emoji + code + " " + response.statusMessage+"\n";
+}
+
+function getUserName(ctx){
+    var from = ctx.update.message.from;
+    if (from.first_name) return from.first_name+" "+from.last_name
+    else return "@"+from.username
+}
 
 bot.catch(function (err) {
     console.log(err);
