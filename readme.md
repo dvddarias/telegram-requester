@@ -34,7 +34,7 @@ To use this bot you need to create a `config.json` file with the bot details and
             "help": "Check wether he api is listening to the bot.",
             "options": {
                 "method": "GET",
-                "url": "http://deepdatatech.com/hooks/ping",
+                "url": "http://my.website.com/hooks/ping",
             },
             "broadcast": ["http_code", "headers", "username"],
             "response": ["http_code", "body"]
