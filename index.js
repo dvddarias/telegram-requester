@@ -76,7 +76,7 @@ bot.use((ctx, next) => {
 })
 
 function allowed(ctx){
-    if (ctx.update && ctx.update.message.from) {
+    if (ctx.update && ctx.update.message && ctx.update.message.from) {
         const user = ctx.update.message.from
         const access = bot_config["access"]
         if (access && access.includes(user.id+"")) return true;
@@ -114,9 +114,11 @@ bot_config["requests"].forEach(req => {
 
     function action(ctx, next) {
         const view = {}
+        console.log("/"+req.command + " requested.")
         //find the parameters in the command and fill the view object
         if(req.params && req.params.inline){
             const inline = req.params.inline;
+            console.log("Parameters: " + ctx.message.text.trim())
             const parts = regex.exec(ctx.message.text.trim());
             if(parts){
                 const args = !parts[3] ? [] : parts[3].split(/\s+/).filter(arg => arg.length);
@@ -149,10 +151,17 @@ bot_config["requests"].forEach(req => {
         // console.log(JSON.stringify(req.options))
         // console.log(replaced)
 
-        request(JSON.parse(replaced), (error, response, body) => {            
-            message = getMessageContent(req, ctx, error, response, body, view, false);
-            if (message != null && message!="") ctx.reply(message, Extra.HTML())            
-            broadcastRequest(req, ctx, error, response, body, view);
+        request(JSON.parse(replaced), (error, response, body) => { 
+            if(error){
+                console.log("There was an error on the request triggered by: "+req.command)
+                console.log(error)
+                console.log("Options:\n" + JSON.stringify(req.options))
+            }  
+            else{
+                message = getMessageContent(req, ctx, response, body, view, false);
+                if (message != null && message != "") ctx.reply(message, Extra.HTML())
+                broadcastRequest(req, ctx, response, body, view);
+            }                     
             return next()
         });
     }
@@ -160,7 +169,7 @@ bot_config["requests"].forEach(req => {
     bot.command(req.command, action);
 });
 
-function broadcastRequest(req, ctx, error, response, body, view){
+function broadcastRequest(req, ctx, response, body, view){
     if (!bot_config["channels"] || bot_config["channels"].length==0) return;
     
     message = getMessageContent(req, ctx, error, response, body, view, true);
@@ -171,7 +180,7 @@ function broadcastRequest(req, ctx, error, response, body, view){
     });
 }
 
-function getMessageContent(req, ctx, error, response, body, view, is_broadcast){
+function getMessageContent(req, ctx, response, body, view, is_broadcast){
     content = is_broadcast?req.broadcast:req.response;    
     message = ""
     if(!content) return message;
@@ -183,7 +192,7 @@ function getMessageContent(req, ctx, error, response, body, view, is_broadcast){
     if (content.includes("params")) message += getParamList(view)
     if (content.includes("http_code")) message += getHttpCodeMessage(response)
     if (content.includes("headers")) message += getHttpHeaders(response)
-    if (content.includes("body") && !error) message += "📦 Response:\n" + body + "\n"
+    if (content.includes("body")) message += "📦 Response:\n" + body + "\n"
 
     return message
 }
