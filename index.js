@@ -13,7 +13,7 @@ if (!process.env.CONFIG){
 try {
     var data = fs.readFileSync(process.env.CONFIG, 'utf8');
 } catch (error) {
-    console.log("Failed reading bot configuration at: " + process.env.CONFIG);
+    console.log(`Failed reading bot configuration at: ${process.env.CONFIG}`);
     process.exit(1);
 }
 // validate the config matches the bot configuration json schema
@@ -28,7 +28,7 @@ const bot = new Telegraf(bot_config["bot_token"])
 //this is to capture signals and avoid hanging on docker sigterm   
 function exitOnSignal(signal) {
     process.on(signal, function () {
-        console.log('Caught ' + signal + ', exiting...');
+        console.log(`Caught ${signal}, exiting...`);
         bot.stop().then(() => {
             console.log("Bye!")
             process.exit();
@@ -48,7 +48,7 @@ bot_config["requests"].forEach(req => {
 bot.start((ctx) =>{
     if (allowed(ctx)){
         ctx.reply(
-            bot_config["start_message"] + "\n" + "A keyboard with available commands has been enabled",
+            `${bot_config["start_message"]}\nA keyboard with available commands has been enabled`,
             Markup.keyboard(keys)
             .oneTime()
             .resize()
@@ -62,10 +62,10 @@ bot.start((ctx) =>{
 bot.use((ctx, next)=>{
     var post = ctx.update.channel_post;
     if(!post || post.text!="/id") return next()
-    var message = "<i>" + post.chat.title + "</i> channel info:";
-    message += "\n<b>id:</b> " + post.chat.id
-    message += "\n<b>type:</b> " + (post.chat.username?"public":"private")
-    if (post.chat.username) message += "\n<b>name:</b> " + "@" + post.chat.username
+    var message = `<i>${post.chat.title}</i> channel info:`;
+    message += `\n<b>id:</b> ${post.chat.id}`
+    message += `\n<b>type:</b> ${(post.chat.username?"public":"private")}`
+    if (post.chat.username) message += `\n<b>name:</b> @${post.chat.username}`
     ctx.reply(message, Extra.HTML())
     return next()
 })
@@ -92,11 +92,11 @@ function allowed(ctx){
 //Fill the help with the list of commands and its description
 help = bot_config["help_message"]
 commands_help = ""
-if (help) commands_help = help + "\n\n";
+if (help) commands_help = `${help}\n\n`;
 commands_help += "Commands:\n"
 
 bot_config["requests"].forEach(req => {
-    commands_help += "/" + req.command + " " + req.help + "\n";
+    commands_help += `/${req.command} ${req.help}\n`;
 });
 commands_help += "/help Show this help message.\n";
 
@@ -114,21 +114,21 @@ bot_config["requests"].forEach(req => {
 
     function action(ctx, next) {
         const view = {}
-        console.log("/"+req.command + " requested.")
+        console.log(`/${req.command} requested.`)
         //find the parameters in the command and fill the view object
         if(req.params && req.params.inline){
             const inline = req.params.inline;
-            console.log("Parameters: " + ctx.message.text.trim())
+            console.log(`Parameters: ${ctx.message.text.trim()}`)
             const parts = regex.exec(ctx.message.text.trim());
             if(parts){
                 const args = !parts[3] ? [] : parts[3].split(/\s+/).filter(arg => arg.length);
                 if(args){
                     if(args.length<inline.length){
-                        error = "/" + req.command + " requires <b>" + inline.length + "</b> positional argument" + (inline.length > 1 ? "s:" : ":")
+                        error = `/${req.command} requires <b>${inline.length}</b> positional argument${(inline.length > 1 ? "s:" : ":")}`
                         help = ""
                         for (let i = 0; i < inline.length; i++) {
                             const param = inline[i];
-                            help+= "\n<b>" + param.name + "</b>: "+param.help
+                            help += `\n<b>${param.name}</b>: ${param.help}`
                         }
                         ctx.reply(error+help, Extra.HTML())
                         return next()
@@ -153,9 +153,9 @@ bot_config["requests"].forEach(req => {
 
         request(JSON.parse(replaced), (error, response, body) => { 
             if(error){
-                console.log("There was an error on the request triggered by: "+req.command)
+                console.log(`There was an error on the request triggered by: ${req.command}`)
                 console.log(error)
-                console.log("Options:\n" + JSON.stringify(req.options))
+                console.log(`Options:\n${JSON.stringify(req.options)}`)
             }  
             else{
                 message = getMessageContent(req, ctx, response, body, view, false);
@@ -185,14 +185,14 @@ function getMessageContent(req, ctx, response, body, view, is_broadcast){
     message = ""
     if(!content) return message;
     if(is_broadcast){
-        message += "📢 <b>/" + req.command + "</b> was called";
-        if (content.includes("username")) message += " by <b>" + getUserName(ctx) + "</b>"
-        message += ".\n"
+        message += `📢 <b>/${req.command}</b> was called`;
+        if (content.includes("username")) message = `${message} by <b>${getUserName(ctx)}</b>`
+        message = `${message}.\n`
     }    
     if (content.includes("params")) message += getParamList(view)
     if (content.includes("http_code")) message += getHttpCodeMessage(response)
     if (content.includes("headers")) message += getHttpHeaders(response)
-    if (content.includes("body")) message += "📦 Response:\n" + body + "\n"
+    if (content.includes("body")) message += `📦 Response:\n${body}\n`
 
     return message
 }
@@ -202,7 +202,7 @@ function getParamList(view) {
     for (const param in view) {
         if (view.hasOwnProperty(param)) {
             const value = view[param];
-            message += "🏷 <b>" + param + "</b>: " + value + "\n"
+            message += `🏷 <b>${param}</b>: ${value}\n`
         }
     }
     return message;
@@ -213,7 +213,7 @@ function getHttpHeaders(response) {
     for (const header in response.headers) {
         if (response.headers.hasOwnProperty(header)) {
             const val = response.headers[header];
-            message += "📋 <i>" + header + "</i>: " + val + "\n"
+            message += `📋 <i>${header}</i>: ${val}\n`
         }
     }    
     return message;
@@ -227,13 +227,13 @@ function getHttpCodeMessage(response) {
     else if (code >= 300) emoji = "🔀 "
     else if (code >= 200) emoji = "✅ "
     else if (code >= 100) emoji = "ℹ️ "
-    return  emoji + code + " " + response.statusMessage+"\n";
+    return `${emoji}${code} ${response.statusMessage}\n`;
 }
 
 function getUserName(ctx){
     var from = ctx.update.message.from;
-    if (from.first_name) return from.first_name+" "+from.last_name
-    else return "@"+from.username
+    if (from.first_name) return `${from.first_name} ${from.last_name}`
+    else return `@${from.username}`
 }
 
 bot.catch(function (err) {
