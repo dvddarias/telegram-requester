@@ -17,7 +17,7 @@ try {
     console.log(`Failed reading bot configuration at: ${process.env.CONFIG}`);
     process.exit(1);
 }
-// validate the config matches the bot configuration json schema
+// TODO validate the config matches the bot configuration json schema
 bot_config = JSON.parse(data);
 // console.log("Bot configuration is set to:\n" + JSON.stringify(bot_config, null, 4));
 
@@ -39,13 +39,13 @@ function exitOnSignal(signal) {
 exitOnSignal('SIGINT');
 exitOnSignal('SIGTERM');
 
-
+//create a keyboard with all the commands in the configuration + /help command
 var keys = ["/help"];
 bot_config["requests"].forEach(req => {
     keys.push("/" + req.command);
 });
 
-//setup start and help response
+//in start (if allowed) activate the command keyboard.
 bot.start((ctx) =>{
     if (allowed(ctx)){
         ctx.reply(
@@ -59,7 +59,7 @@ bot.start((ctx) =>{
 });
 
 //if it is a channel respond to /id command with the channel info
-//this is ised to fill the channels list used to broadcast the results
+//this is used to fill the channels list used to broadcast the results
 bot.use((ctx, next)=>{
     var post = ctx.update.channel_post;
     if(!post || post.text!="/id") return next()
@@ -71,6 +71,7 @@ bot.use((ctx, next)=>{
     return
 })
 
+//this is the session object, it is unique per chat.id and from.id
 bot.use(session({
     getSessionKey: (ctx) => {
         if (ctx.from && ctx.chat) {
@@ -104,7 +105,7 @@ function allowed(ctx){
     return false;
 }
 
-//Fill the help with the list of commands and its description
+//fill the help with the list of commands and their description
 help = bot_config["help_message"]
 commands_help = ""
 if (help) commands_help = `${help}\n\n`;
@@ -115,6 +116,7 @@ bot_config["requests"].forEach(req => {
 });
 commands_help += "/help Show this help message.\n";
 
+// on help, show te description and the command keyboard
 bot.help((ctx) => ctx.reply(commands_help,
     Markup.keyboard(keys)
     .oneTime()
@@ -122,8 +124,14 @@ bot.help((ctx) => ctx.reply(commands_help,
     .extra()
 ));
 
-// iterate over requests definition
-const regex = /^\/([^@\s]+)@?(?:(\S+)|)\s?([\s\S]+)?$/i;
+// list of methods and order they will be called in on each command
+const command_middleware = [
+    processChoiceParameters,
+    confirmRequest,
+    executeRequest
+]
+
+// iterate over requests definition and declare the middleware methods for each
 bot_config["requests"].forEach(req => {
     bot.command(req.command, 
         (ctx, next)=>{
@@ -149,12 +157,11 @@ bot_config["requests"].forEach(req => {
             return next()
         }, 
         processInlineParameters, 
-        processChoiceParameters, 
-        confirmRequest,
-        executeRequest
+        ...command_middleware
     );
 });
 
+const regex = /^\/([^@\s]+)@?(?:(\S+)|)\s?([\s\S]+)?$/i;
 function processInlineParameters(ctx, next){
     const command = ctx.session.activeCommands[ctx.state.commandId]
     const req = command.req
@@ -205,12 +212,15 @@ function processChoiceParameters(ctx, next) {
         const choice = req.params_choice[command.menu.step]
         console.log(`/${req.command} processing choice parameter: ${choice.name}.`)
         
+        //fill the keyboard with the options
         const keyboard = []
         const included = []
         for (let i = 0; i < choice.options.length; i++) {
             const c = choice.options[i];
             if (!included.includes(c)){
                 const value = `${command.uuid},${command.menu.step},${i}`;
+                //the format is uuid,menu_step,option_index
+                //when query_callback is called with this data it will extract the required information
                 keyboard.push(Markup.callbackButton(c, value))
                 included.push(c)
             }            
@@ -220,6 +230,7 @@ function processChoiceParameters(ctx, next) {
 
         function wrap (btn, index, currentRow) { return currentRow.length == 2 || index == keyboard.length - 1 }
 
+        //if first menu in the list of choice options then reply with new message
         if(create_menu){
             ctx.reply(choice.help, Markup.inlineKeyboard(keyboard, { wrap: wrap }).extra())
                 .then((results) => {
@@ -228,6 +239,7 @@ function processChoiceParameters(ctx, next) {
                 })
         }
         else{
+            //edit the existing menu if not the first
             bot.telegram.editMessageText(
                 command.menu.chat_id,
                 command.menu.message_id, null,
@@ -244,25 +256,29 @@ function processChoiceParameters(ctx, next) {
 bot.use((ctx, next) => {
     //handle actions on inline menus
     if (ctx.updateType == 'callback_query') {
-        
+        //extract the data from the payload
         const data = ctx.update.callback_query.data.split(",");
         const uuid = data[0]
         const menu_index = data[1]
         const option_index = data[2]
 
         ctx.state.commandId = uuid
-
+        //if is an active command
         if(uuid in ctx.session.activeCommands){
             const command = ctx.session.activeCommands[uuid]
+            //if the option is negative it means cancel the command, this is the case in the cancel button of each menu
+            //and in the cancel button in case of confirmation: true
             if(option_index<0){
                 cancelInlineMenu(ctx.session,uuid,"cancel was pressed")
             }
             else{
+                //index "c" means is the confirmation menu so set confirmed to true
                 if(menu_index=="c"){
                     command.confirmed = true;
                     return next()
                 }
                 else{
+                    //set the selected choice in the view and increase the step
                     const choice = command.req.params_choice[menu_index]
                     command.view[choice.name] = choice.options[option_index]
                     command.menu.step += 1
@@ -272,11 +288,10 @@ bot.use((ctx, next) => {
         }
     }
 }, 
-processChoiceParameters,
-confirmRequest,
-executeRequest)
+...command_middleware)
 
 function cancelInlineMenu(session, commandId, reason) {
+    //this cancels the command and removes it from the active commands list
     const command = session.activeCommands[commandId];
     if (command && command.menu) {
         const menu = command.menu
@@ -288,6 +303,7 @@ function cancelInlineMenu(session, commandId, reason) {
 function confirmRequest(ctx, next){
     const command = ctx.session.activeCommands[ctx.state.commandId]
 
+    //if confirmed go ahead
     if(!command.req.confirm || command.confirmed) return next()
 
     const keyboard = [
@@ -296,7 +312,8 @@ function confirmRequest(ctx, next){
     ]
 
     const confirmation = `Confirm /${command.req.command}:\n${getParamList(command.view)}`
-
+    
+    //the confirmation may be the first menu, so modify it or create it. 
     if (command.menu) {
         const menu = command.menu
         bot.telegram.editMessageText(
@@ -321,6 +338,7 @@ function executeRequest(ctx, next) {
 
     const running_message = `⏳ /${command.req.command} running...\n${getParamList(command.view)}`;
 
+    //the message with the status of the command may be the first response, so modify it or create it. 
     if(command.menu){
         const menu = command.menu
         bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, running_message, Extra.HTML())
@@ -375,7 +393,7 @@ function executeRequest(ctx, next) {
 }
 
 function broadcastRequest(req, ctx, response, body, view){
-    if (!bot_config["channels"] || bot_config["channels"].length==0) return;
+    if (!bot_config.channels || bot_config.channels.length==0) return;
     
     message = getMessageContent(req, ctx, response, body, view, true);
     if (message == null || message=="") return;
