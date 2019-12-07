@@ -4,7 +4,8 @@ const Markup = require('telegraf/markup')
 const session = require('telegraf/session')
 const request = require("request");
 const Mustache = require("mustache");
-var fs = require('fs');
+const uuidv1 = require('uuid/v1');
+const fs = require('fs');
 
 // check and load configuration
 if (!process.env.CONFIG){
@@ -67,17 +68,32 @@ bot.use((ctx, next)=>{
     message += `\n<b>type:</b> ${(post.chat.username?"public":"private")}`
     if (post.chat.username) message += `\n<b>name:</b> @${post.chat.username}`
     ctx.reply(message, Extra.HTML())
-    return next()
+    return
 })
+
+bot.use(session({
+    getSessionKey: (ctx) => {
+        if (ctx.from && ctx.chat) {
+            return `${ctx.from.id}:${ctx.chat.id}`
+        } else if (ctx.from && ctx.inlineQuery) {
+            return `${ctx.from.id}:${ctx.from.id}`
+        }
+        return null
+    }
+}))
 
 //control usage access to commands
 bot.use((ctx, next) => {
-    if(allowed(ctx)) next();
+    if(allowed(ctx)) return next();
 })
 
 function allowed(ctx){
-    if (ctx.update && ctx.update.message && ctx.update.message.from) {
-        const user = ctx.update.message.from
+    if (ctx.updateType != 'callback_query' && ctx.updateType != 'message'){
+        console.log(`Update type: ${ctx.updateType} not allowed`)
+        return false
+    }
+    if (ctx.update[ctx.updateType].from) {
+        const user = ctx.update[ctx.updateType].from
         const access = bot_config["access"]
         if (access && access.includes(user.id+"")) return true;
         else {
@@ -86,7 +102,6 @@ function allowed(ctx){
         }
     }
     return false;
-
 }
 
 //Fill the help with the list of commands and its description
@@ -100,7 +115,6 @@ bot_config["requests"].forEach(req => {
 });
 commands_help += "/help Show this help message.\n";
 
-
 bot.help((ctx) => ctx.reply(commands_help,
     Markup.keyboard(keys)
     .oneTime()
@@ -111,63 +125,254 @@ bot.help((ctx) => ctx.reply(commands_help,
 // iterate over requests definition
 const regex = /^\/([^@\s]+)@?(?:(\S+)|)\s?([\s\S]+)?$/i;
 bot_config["requests"].forEach(req => {
+    bot.command(req.command, 
+        (ctx, next)=>{
+            if (!ctx.session.activeCommands) ctx.session.activeCommands = {}
 
-    function action(ctx, next) {
-        const view = {}
-        console.log(`/${req.command} requested.`)
-        //find the parameters in the command and fill the view object
-        if(req.params && req.params.inline){
-            const inline = req.params.inline;
-            console.log(`Parameters: ${ctx.message.text.trim()}`)
-            const parts = regex.exec(ctx.message.text.trim());
-            if(parts){
-                const args = !parts[3] ? [] : parts[3].split(/\s+/).filter(arg => arg.length);
-                if(args){
-                    if(args.length<inline.length){
-                        error = `/${req.command} requires <b>${inline.length}</b> positional argument${(inline.length > 1 ? "s:" : ":")}`
-                        help = ""
-                        for (let i = 0; i < inline.length; i++) {
-                            const param = inline[i];
-                            help += `\n<b>${param.name}</b>: ${param.help}`
-                        }
-                        ctx.reply(error+help, Extra.HTML())
-                        return next()
+            //cancel menus of active commands
+            for (const id in ctx.session.activeCommands) {
+                if (ctx.session.activeCommands.hasOwnProperty(id)) {
+                    cancelInlineMenu(ctx.session, id, `another command was run`)                    
+                }
+            }
+            
+            //set a new active command on the session, no menu yet
+            const uuid = uuidv1()
+            ctx.state.commandId = uuid
+            ctx.session.activeCommands[uuid] = {
+                uuid: uuid,
+                req: req,
+                view: {}
+            }
+            
+            console.log(`/${req.command} requested.`)
+            return next()
+        }, 
+        processInlineParameters, 
+        processChoiceParameters, 
+        confirmRequest,
+        executeRequest
+    );
+});
+
+function processInlineParameters(ctx, next){
+    const command = ctx.session.activeCommands[ctx.state.commandId]
+    const req = command.req
+    //find the parameters in the command and fill the view object
+    if (req.params_inline) {
+        console.log(`/${req.command} processing inline parameters.`)
+        const inline = req.params_inline;
+        console.log(`Message: ${ctx.message.text.trim()}`)
+        const parts = regex.exec(ctx.message.text.trim());
+        if (parts) {
+            const args = !parts[3] ? [] : parts[3].split(/\s+/).filter(arg => arg.length);
+            if (args) {
+                if (args.length < inline.length) {
+                    error = `/${req.command} requires <b>${inline.length}</b> positional argument${(inline.length > 1 ? "s:" : ":")}`
+                    help = ""
+                    for (let i = 0; i < inline.length; i++) {
+                        const param = inline[i];
+                        help += `\n<b>${param.name}</b>: ${param.help}`
                     }
-                    else{
-                        for (let i = 0; i < inline.length; i++) {
-                            const param = inline[i];
-                            view[param.name] = args[i]
-                        }
+                    ctx.reply(error + help, Extra.HTML())
+                    return
+                }
+                else {
+                    for (let i = 0; i < inline.length; i++) {
+                        const param = inline[i];
+                        command.view[param.name] = args[i]
                     }
+                    return next()
                 }
             }
         }
+        console.log(`There was an error parsing the command: ${ctx.message.text.trim()}`)
+        return
+    }
+    else{
+        return next()
+    }
+}
+
+function processChoiceParameters(ctx, next) {
+    const command = ctx.session.activeCommands[ctx.state.commandId]
+    if (!command.req.params_choice) return next()
+    const create_menu = !command.menu
+    if (create_menu) command.menu = { step: 0 }
+    //find the parameters in the command and fill the view object
+    const req = command.req
+    if (req.params_choice.length > command.menu.step ) {
+        const choice = req.params_choice[command.menu.step]
+        console.log(`/${req.command} processing choice parameter: ${choice.name}.`)
         
-        //replace the values of the view object on the options of the request
-        const replaced = Mustache.render(JSON.stringify(req.options), view);
+        const keyboard = []
+        const included = []
+        for (let i = 0; i < choice.options.length; i++) {
+            const c = choice.options[i];
+            if (!included.includes(c)){
+                const value = `${command.uuid},${command.menu.step},${i}`;
+                keyboard.push(Markup.callbackButton(c, value))
+                included.push(c)
+            }            
+        }
 
-        // DEBUG TEMPLATING
-        // console.log(view)
-        // console.log(JSON.stringify(req.options))
-        // console.log(replaced)
+        keyboard.push(Markup.callbackButton("❌ Cancel Request", `${command.uuid},${command.menu.step},${-1}` ))
 
-        request(JSON.parse(replaced), (error, response, body) => { 
-            if(error){
-                console.log(`There was an error on the request triggered by: ${req.command}`)
-                console.log(error)
-                console.log(`Options:\n${JSON.stringify(req.options)}`)
-            }  
+        function wrap (btn, index, currentRow) { return currentRow.length == 2 || index == keyboard.length - 1 }
+
+        if(create_menu){
+            ctx.reply(choice.help, Markup.inlineKeyboard(keyboard, { wrap: wrap }).extra())
+                .then((results) => {
+                    command.menu.message_id = results.message_id;
+                    command.menu.chat_id = results.chat.id;
+                })
+        }
+        else{
+            bot.telegram.editMessageText(
+                command.menu.chat_id,
+                command.menu.message_id, null,
+                choice.help, Markup.inlineKeyboard(keyboard, { wrap: wrap }).extra()
+            )     
+        }
+    }
+    else{        
+        return next()
+    }
+}
+
+//control usage access to commands
+bot.use((ctx, next) => {
+    //handle actions on inline menus
+    if (ctx.updateType == 'callback_query') {
+        
+        const data = ctx.update.callback_query.data.split(",");
+        const uuid = data[0]
+        const menu_index = data[1]
+        const option_index = data[2]
+
+        ctx.state.commandId = uuid
+
+        if(uuid in ctx.session.activeCommands){
+            const command = ctx.session.activeCommands[uuid]
+            if(option_index<0){
+                cancelInlineMenu(ctx.session,uuid,"cancel was pressed")
+            }
             else{
-                message = getMessageContent(req, ctx, response, body, view, false);
-                if (message != null && message != "") ctx.reply(message, Extra.HTML())
-                broadcastRequest(req, ctx, response, body, view);
-            }                     
-            return next()
-        });
+                if(menu_index=="c"){
+                    command.confirmed = true;
+                    return next()
+                }
+                else{
+                    const choice = command.req.params_choice[menu_index]
+                    command.view[choice.name] = choice.options[option_index]
+                    command.menu.step += 1
+                    return next()
+                }
+            }  
+        }
+    }
+}, 
+processChoiceParameters,
+confirmRequest,
+executeRequest)
+
+function cancelInlineMenu(session, commandId, reason) {
+    const command = session.activeCommands[commandId];
+    if (command && command.menu) {
+        const menu = command.menu
+        bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, `❌ /${command.req.command} aborted: ${reason}.`)
+        delete session.activeCommands[commandId];
+    }
+}
+
+function confirmRequest(ctx, next){
+    const command = ctx.session.activeCommands[ctx.state.commandId]
+
+    if(!command.req.confirm || command.confirmed) return next()
+
+    const keyboard = [
+        Markup.callbackButton("❌ Cancel", `${command.uuid},c,-1`),
+        Markup.callbackButton("✅ Ok", `${command.uuid},c,1`)
+    ]
+
+    const confirmation = `Confirm /${command.req.command}:\n${getParamList(command.view)}`
+
+    if (command.menu) {
+        const menu = command.menu
+        bot.telegram.editMessageText(
+            menu.chat_id, 
+            menu.message_id, null, 
+            confirmation, 
+            Extra.HTML().markup(m => m.inlineKeyboard(keyboard)))        
+    }
+    else {
+        command.menu = { step: 0 }
+        ctx.reply(confirmation, Extra.HTML().markup(m => m.inlineKeyboard(keyboard))).then((results) => {
+            command.menu.message_id = results.message_id;
+            command.menu.chat_id = results.chat.id;
+        })        
+    }    
+}
+
+function executeRequest(ctx, next) {
+    const command = ctx.session.activeCommands[ctx.state.commandId]
+    const req = command.req
+    const view = command.view
+
+    const running_message = `⏳ /${command.req.command} running...\n${getParamList(command.view)}`;
+
+    if(command.menu){
+        const menu = command.menu
+        bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, running_message, Extra.HTML())
+        delete ctx.session.activeCommands[command.uuid];
+    }
+    else{
+        command.menu = { step: 0 }
+        ctx.reply(running_message, Extra.HTML()).then((results) => {
+            command.menu.message_id = results.message_id;
+            command.menu.chat_id = results.chat.id;
+        })
     }
 
-    bot.command(req.command, action);
-});
+    //replace the values of the view object on the options of the request
+    const replaced = Mustache.render(JSON.stringify(req.options), view);
+
+    // DEBUG TEMPLATING
+    // console.log(view)
+    // console.log(JSON.stringify(req.options))
+    // console.log(replaced)
+
+    request(JSON.parse(replaced), (error, response, body) => {
+
+        if (error) {
+            console.log(`There was an error on the request triggered by: ${req.command}`)
+            console.log(error)
+            console.log(`Options:\n${JSON.stringify(req.options)}`)
+            
+            bot.telegram.editMessageText(
+                command.menu.chat_id,
+                command.menu.message_id, 
+                null, 
+                `❌ /${command.req.command} error.\n${getParamList(command.view)}`,
+                Extra.HTML())
+        }
+        else {
+            message = getMessageContent(req, ctx, response, body, view, false);
+            if (message != null && message != "") ctx.reply(message, Extra.HTML())
+            broadcastRequest(req, ctx, response, body, view);
+
+            bot.telegram.editMessageText(
+                command.menu.chat_id,
+                command.menu.message_id,
+                null,
+                `✅ /${command.req.command} done.\n${getParamList(command.view)}`,
+                Extra.HTML())            
+        }
+
+        delete ctx.session.activeCommands[command.uuid];
+        return next()
+    });
+}
 
 function broadcastRequest(req, ctx, response, body, view){
     if (!bot_config["channels"] || bot_config["channels"].length==0) return;

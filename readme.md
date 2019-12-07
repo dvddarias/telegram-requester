@@ -82,25 +82,45 @@ On each command/request you can specify how the bot will respond to it. With the
 - `help`: *string*. The help message explaining what this command does, it is shown on `/help`.
 - `response`: *list*. Parts of the http response that will be included on the response to the command, the possible options are: `"http_code", "params", "body", "headers"`. To skip the response do not include this key.
 - `broadcast`: *list*. Parts of the http response that will be broadcasted to the channel list in the `channels` option, the possible options are: `"http_code", "params", "body", "headers", "username"`. To skip broadcasting to the channels do not include this key.
-- `params`: *object*. This object is the parameters configuration of the command. So far it only supports one type of parameter: `inline`. Inline parameters need to be included with the command. For example:
+- `params_inline`: *list*. This is the list of inline parameters of the command. Inline parameters need to be included with the command. For example:
 ```json
 {
     "command": "register",
-    "params": {
-        "inline":[
-            {
-                "name":"name",
-                "help":"The name of the user."
-            },
-            {
-                "name":"last_name",
-                "help":"The last name of the user."
-            }
-        ]
-    }
+    "params_inline":[
+        {
+            "name":"name",
+            "help":"The name of the user."
+        },
+        {
+            "name":"last_name",
+            "help":"The last name of the user."
+        }
+    ]
 }
 ```
-This is a `/register` command with two inline parameters: `name` and `last_name`. To call this command the message has to include two positional arguments, for example in `/register tony stark`, the value of the parameters are `name:tony` and `last_name:stark` both values will be interpolated in the `options` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
+This is a `/register` command with two inline parameters: `name` and `last_name`. To call this command the message has to include two positional arguments. For example in `/register tony stark`, the value of the parameters are `name:tony` and `last_name:stark` both values will be interpolated in the `options` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
+
+- `params_choice`: *list*. This is the list of choice parameters. Choice parameters are shown as a list of possible options for each paramter. For example:
+```json
+{
+    "command": "register",
+    "params_choice":[
+        {
+            "name":"name",
+            "help":"What is your name?",
+            "options": ["David", "Tony", "Scarlet"]
+        },
+        {
+            "name":"last_name",
+            "help":"What is your last name?",
+            "options": ["Copperfield", "Stark", "Johansson"]
+        }
+    ]
+}
+```
+This is a `/register` command with two multiple choice parameters: `name` and `last_name`. After calling this command the user will be presented with a menu to chose the value each parameter will have. As with all parameters both values will be interpolated in the `options` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
+
+- `confirm`: *boolean*. When `true` it will show a confirm dialog with all the parameter values before running the request.
 
 - `options`: *object*. This object contains all the configuration of the http request. All the possible options are thoroughly documented in [the requests.js options documentation](https://github.com/request/request#requestoptions-callback).
 
