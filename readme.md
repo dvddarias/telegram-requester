@@ -82,7 +82,8 @@ On each command/request you can specify how the bot will respond to it. With the
 - `help`: *string*. The help message explaining what this command does, it is shown on `/help`.
 - `response`: *list*. Parts of the http response that will be included on the response to the command, the possible options are: `"http_code", "params", "body", "headers"`. To skip the response do not include this key.
 - `broadcast`: *list*. Parts of the http response that will be broadcasted to the channel list in the `channels` option, the possible options are: `"http_code", "params", "body", "headers", "username"`. To skip broadcasting to the channels do not include this key.
-- `params_inline`: *list*. This is the list of inline parameters of the command. Inline parameters need to be included with the command. For example:
+- `params_inline`: *list*. This is the list of inline parameters of the command. Each parameter has: `name`-the name of the command, and `help`- the description of the command.  Inline parameters need to be included with the command. For example:
+
 ```json
 {
     "command": "register",
@@ -98,9 +99,11 @@ On each command/request you can specify how the bot will respond to it. With the
     ]
 }
 ```
+
 This is a `/register` command with two inline parameters: `name` and `last_name`. To call this command the message has to include two positional arguments. For example in `/register tony stark`, the value of the parameters are `name:tony` and `last_name:stark` both values will be interpolated in the `options` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
 
-- `params_choice`: *list*. This is the list of choice parameters. Choice parameters are shown as a list of possible options for each paramter. For example:
+- `params_choice`: *list*. This is the list of choice parameters. Each parameter has: `name`-the name of the command, `help`-message included in the menu and `options`-list of possible options to choose from. Choice parameters are shown as a menu with a list of possible options for each parameter. For example:
+
 ```json
 {
     "command": "register",
@@ -118,7 +121,7 @@ This is a `/register` command with two inline parameters: `name` and `last_name`
     ]
 }
 ```
-This is a `/register` command with two multiple choice parameters: `name` and `last_name`. After calling this command the user will be presented with a menu to chose the value each parameter will have. As with all parameters both values will be interpolated in the `options` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
+This is a `/register` command with two multiple choice parameters: `name` and `last_name`. After calling this command the user will be presented with a menu to choose the value each parameter will have. As with all parameters both values will be interpolated in the `options` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
 
 - `confirm`: *boolean*. When `true` it will show a confirm dialog with all the parameter values before running the request.
 
