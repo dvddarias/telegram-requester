@@ -150,7 +150,8 @@ bot_config.commands.forEach(req => {
             ctx.session.activeCommands[uuid] = {
                 uuid: uuid,
                 req: JSON.parse(JSON.stringify(req)), //store a copy of the request, it may be modified by dynamic choices
-                view: {}
+                view: {},
+                username: getUserName(ctx)
             }
             
             console.log(`/${req.name} requested.`)
@@ -160,6 +161,12 @@ bot_config.commands.forEach(req => {
         ...command_middleware
     );
 });
+
+function getUserName(ctx) {
+    var from = ctx.update.message.from;
+    if (from.first_name) return `${from.first_name} ${from.last_name}`
+    else return `@${from.username}`
+}
 
 const regex = /^\/([^@\s]+)@?(?:(\S+)|)\s?([\s\S]+)?$/i;
 function processInlineParameters(ctx, next){
@@ -415,9 +422,9 @@ function executeRequest(ctx, next) {
                 Extra.HTML())
         }
         else {
-            message = getMessageContent(req, ctx, response, body, view, false);
+            message = getMessageContent(req, command.username, response, body, view, false);
             if (message != null && message != "") ctx.reply(message, Extra.HTML())
-            broadcastRequest(req, ctx, response, body, view);
+            broadcastRequest(req, command.username, response, body, view);
 
             bot.telegram.editMessageText(
                 command.menu.chat_id,
@@ -432,10 +439,10 @@ function executeRequest(ctx, next) {
     });
 }
 
-function broadcastRequest(req, ctx, response, body, view){
+function broadcastRequest(req, username, response, body, view){
     if (!bot_config.channels || bot_config.channels.length==0) return;
     
-    message = getMessageContent(req, ctx, response, body, view, true);
+    message = getMessageContent(req, username, response, body, view, true);
     if (message == null || message=="") return;
 
     bot_config["channels"].forEach(channelId => {
@@ -443,13 +450,13 @@ function broadcastRequest(req, ctx, response, body, view){
     });
 }
 
-function getMessageContent(req, ctx, response, body, view, is_broadcast){
+function getMessageContent(req, username, response, body, view, is_broadcast){
     content = is_broadcast?req.broadcast:req.response;    
     message = ""
     if(!content) return message;
     if(is_broadcast){
         message += `📢 <b>/${req.name}</b> was called`;
-        if (content.includes("username")) message = `${message} by <b>${getUserName(ctx)}</b>`
+        if (content.includes("username")) message = `${message} by <b>${username}</b>`
         message = `${message}.\n`
     }    
     if (content.includes("params")) message += getParamList(view)
@@ -491,12 +498,6 @@ function getHttpCodeMessage(response) {
     else if (code >= 200) emoji = "✅ "
     else if (code >= 100) emoji = "ℹ️ "
     return `${emoji}${code} ${response.statusMessage}\n`;
-}
-
-function getUserName(ctx){
-    var from = ctx.update.message.from;
-    if (from.first_name) return `${from.first_name} ${from.last_name}`
-    else return `@${from.username}`
 }
 
 bot.catch(function (err) {
