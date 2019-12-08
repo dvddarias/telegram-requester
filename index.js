@@ -41,8 +41,8 @@ exitOnSignal('SIGTERM');
 
 //create a keyboard with all the commands in the configuration + /help command
 var keys = ["/help"];
-bot_config["requests"].forEach(req => {
-    keys.push("/" + req.command);
+bot_config.commands.forEach(req => {
+    keys.push("/" + req.name);
 });
 
 //in start (if allowed) activate the command keyboard.
@@ -111,8 +111,8 @@ commands_help = ""
 if (help) commands_help = `${help}\n\n`;
 commands_help += "Commands:\n"
 
-bot_config["requests"].forEach(req => {
-    commands_help += `/${req.command} ${req.help}\n`;
+bot_config.commands.forEach(req => {
+    commands_help += `/${req.name} ${req.help}\n`;
 });
 commands_help += "/help Show this help message.\n";
 
@@ -132,8 +132,8 @@ const command_middleware = [
 ]
 
 // iterate over requests definition and declare the middleware methods for each
-bot_config["requests"].forEach(req => {
-    bot.command(req.command, 
+bot_config.commands.forEach(req => {
+    bot.command(req.name, 
         (ctx, next)=>{
             if (!ctx.session.activeCommands) ctx.session.activeCommands = {}
 
@@ -153,7 +153,7 @@ bot_config["requests"].forEach(req => {
                 view: {}
             }
             
-            console.log(`/${req.command} requested.`)
+            console.log(`/${req.name} requested.`)
             return next()
         }, 
         processInlineParameters, 
@@ -167,7 +167,7 @@ function processInlineParameters(ctx, next){
     const req = command.req
     //find the parameters in the command and fill the view object
     if (req.params_inline) {
-        console.log(`/${req.command} processing inline parameters.`)
+        console.log(`/${req.name} processing inline parameters.`)
         const inline = req.params_inline;
         console.log(`Message: ${ctx.message.text.trim()}`)
         const parts = regex.exec(ctx.message.text.trim());
@@ -175,7 +175,7 @@ function processInlineParameters(ctx, next){
             const args = !parts[3] ? [] : parts[3].split(/\s+/).filter(arg => arg.length);
             if (args) {
                 if (args.length < inline.length) {
-                    error = `/${req.command} requires <b>${inline.length}</b> positional argument${(inline.length > 1 ? "s:" : ":")}`
+                    error = `/${req.name} requires <b>${inline.length}</b> positional argument${(inline.length > 1 ? "s:" : ":")}`
                     help = ""
                     for (let i = 0; i < inline.length; i++) {
                         const param = inline[i];
@@ -210,7 +210,7 @@ function processChoiceParameters(ctx, next) {
     const req = command.req
     if (req.params_choice.length > command.menu.step ) {
         const choice = req.params_choice[command.menu.step]
-        console.log(`/${req.command} processing choice parameter: ${choice.name}.`)
+        console.log(`/${req.name} processing choice parameter: ${choice.name}.`)
 
         //this gets the options instantly if static and does the request if dynamic
         getOptions(choice.options, command.view).then((options)=>{
@@ -331,7 +331,7 @@ function cancelInlineMenu(ctx, commandId, reason) {
     //this cancels the command and removes it from the active commands list
     const command = ctx.session.activeCommands[commandId];
     if (command) {
-        const cancel_message = `❌ /${command.req.command} aborted: ${reason}.`
+        const cancel_message = `❌ /${command.req.name} aborted: ${reason}.`
         if(command.menu && command.menu.message_id){
             const menu = command.menu
             bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, cancel_message)
@@ -354,7 +354,7 @@ function confirmRequest(ctx, next){
         Markup.callbackButton("✅ Ok", `${command.uuid},c,1`)
     ]
 
-    const confirmation = `Confirm /${command.req.command}\n${getParamList(command.view)}`
+    const confirmation = `Confirm /${command.req.name}\n${getParamList(command.view)}`
     
     //the confirmation may be the first menu, so modify it or create it. 
     if (command.menu && command.menu.message_id) {
@@ -379,7 +379,7 @@ function executeRequest(ctx, next) {
     const req = command.req
     const view = command.view
 
-    const running_message = `⏳ /${command.req.command} running...\n${getParamList(command.view)}`;
+    const running_message = `⏳ /${command.req.name} running...\n${getParamList(command.view)}`;
 
     //the message with the status of the command may be the first response, so modify it or create it. 
     if(command.menu && command.menu.message_id){
@@ -403,7 +403,7 @@ function executeRequest(ctx, next) {
     request(req.request, (error, response, body) => {
 
         if (error) {
-            console.log(`There was an error on the request triggered by: ${req.command}`)
+            console.log(`There was an error on the request triggered by: ${req.name}`)
             console.log(error)
             console.log(`Options:\n${req.request}`)
             
@@ -411,7 +411,7 @@ function executeRequest(ctx, next) {
                 command.menu.chat_id,
                 command.menu.message_id, 
                 null, 
-                `❌ /${command.req.command} error.\n${getParamList(command.view)}`,
+                `❌ /${command.req.name} error.\n${getParamList(command.view)}`,
                 Extra.HTML())
         }
         else {
@@ -423,7 +423,7 @@ function executeRequest(ctx, next) {
                 command.menu.chat_id,
                 command.menu.message_id,
                 null,
-                `✅ /${command.req.command} done.\n${getParamList(command.view)}`,
+                `✅ /${command.req.name} done.\n${getParamList(command.view)}`,
                 Extra.HTML())            
         }
 
@@ -448,7 +448,7 @@ function getMessageContent(req, ctx, response, body, view, is_broadcast){
     message = ""
     if(!content) return message;
     if(is_broadcast){
-        message += `📢 <b>/${req.command}</b> was called`;
+        message += `📢 <b>/${req.name}</b> was called`;
         if (content.includes("username")) message = `${message} by <b>${getUserName(ctx)}</b>`
         message = `${message}.\n`
     }    

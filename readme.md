@@ -29,9 +29,9 @@ To use this bot you need to create a `config.json` file with the bot details and
     "help_message": "This is a very simple bot that pings an http api",
     "access":[ "SOME_USER_ID" ],
     "channels":[ "SOME_CHANNEL_ID" ],
-    "requests": [
+    "commands": [
         {
-            "command": "ping",
+            "name": "ping",
             "help": "Check wether he api is listening to the bot.",
             "request": {
                 "method": "GET",
@@ -76,9 +76,9 @@ On each command/request you can specify how the bot will respond to it. With the
 
 ---
 
-`requests`: *list*. Requests that can be triggered with commands. Each request object can have the following options:
+`commands`: *list*. Commands that can trigger HTTP requests. Each command object can have the following options:
 
-- `name`: *string*. This is the name of the command in telegram, and the id of the request, it must be unique.
+- `name`: *string*. This is the name of the command in telegram, and the id of the request/command, it must be unique.
 - `help`: *string*. The help message explaining what this command does, it is shown on `/help`.
 - `response`: *list*. Parts of the http response that will be included on the response to the command, the possible options are: `"http_code", "params", "body", "headers"`. To skip the response do not include this key.
 - `broadcast`: *list*. Parts of the http response that will be broadcasted to the channel list in the `channels` option, the possible options are: `"http_code", "params", "body", "headers", "username"`. To skip broadcasting to the channels do not include this key.
@@ -86,7 +86,7 @@ On each command/request you can specify how the bot will respond to it. With the
 
 ```json
 {
-    "command": "register",
+    "name": "register",
     "params_inline":[
         {
             "name":"name",
@@ -133,9 +133,9 @@ This would be the configuration for command called `example` with one inline par
 
 ```json
 {
-    "requests":[
+    "commands":[
         {
-            "command": "example",
+            "name": "example",
             "params": {
                 "inline":[
                     {
