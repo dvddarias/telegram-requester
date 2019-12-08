@@ -222,7 +222,14 @@ function processChoiceParameters(ctx, next) {
         //this gets the options instantly if static and does the request if dynamic
         getOptions(choice.options, command.view).then((options)=>{
             //replace the options key with the request result
-            choice.options = options
+            choice.options = options.filter(function (value, index, arr) {
+                return value!="";
+            });
+
+            if(choice.options.length==0){
+                cancelInlineMenu(ctx, command.uuid, `empty "${choice.name}" options`)
+                return
+            }
             //fill the keyboard with the options
             const keyboard = []
             const included = []
@@ -360,8 +367,8 @@ function confirmRequest(ctx, next){
         Markup.callbackButton("❌ Cancel", `${command.uuid},c,-1`),
         Markup.callbackButton("✅ Ok", `${command.uuid},c,1`)
     ]
-
-    const confirmation = `Confirm /${command.req.name}\n${getParamList(command.view)}`
+    const param_list = getParamList(command.view);
+    const confirmation = `Confirm /${command.req.name}${param_list==""?".":" with:\n"+param_list}`
     
     //the confirmation may be the first menu, so modify it or create it. 
     if (command.menu && command.menu.message_id) {
