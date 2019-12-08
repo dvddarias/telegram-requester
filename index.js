@@ -396,16 +396,16 @@ function executeRequest(ctx, next) {
     }
 
     //replace the values of the view object on the options of the request
-    const replaced = Mustache.render(JSON.stringify(req.options), view);
-    req.options = JSON.parse(replaced)
+    const replaced = Mustache.render(JSON.stringify(req.request), view);
+    req.request = JSON.parse(replaced)
 
 
-    request(req.options, (error, response, body) => {
+    request(req.request, (error, response, body) => {
 
         if (error) {
             console.log(`There was an error on the request triggered by: ${req.command}`)
             console.log(error)
-            console.log(`Options:\n${req.options}`)
+            console.log(`Options:\n${req.request}`)
             
             bot.telegram.editMessageText(
                 command.menu.chat_id,

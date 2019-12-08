@@ -20,7 +20,7 @@ It also sends a message to a team channel so everyone knows what is happening.
 
 ## Configuration
 
-To use this bot you need to create a `config.json` file with the bot details and a list of http requests options, for example:
+To use this bot you need to create a `config.json` file with the bot details and a list of http requests, for example:
 
 ```json
 {
@@ -33,7 +33,7 @@ To use this bot you need to create a `config.json` file with the bot details and
         {
             "command": "ping",
             "help": "Check wether he api is listening to the bot.",
-            "options": {
+            "request": {
                 "method": "GET",
                 "url": "http://my.website.com/hooks/ping",
             },
@@ -100,7 +100,7 @@ On each command/request you can specify how the bot will respond to it. With the
 }
 ```
 
-This is a `/register` command with two inline parameters: `name` and `last_name`. To call this command the message has to include two positional arguments. For example in `/register tony stark`, the value of the parameters are `name:tony` and `last_name:stark` both values will be interpolated in the `options` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
+This is a `/register` command with two inline parameters: `name` and `last_name`. To call this command the message has to include two positional arguments. For example in `/register tony stark`, the value of the parameters are `name:tony` and `last_name:stark` both values will be interpolated in the `request` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
 
 - `params_choice`: *list*. This is the list of choice parameters. Each parameter has: `name`-the name of the command, `help`-message included in the menu and `options`-list of possible options to choose from. Choice parameters are shown as a menu with a list of possible options for each parameter. For example:
 
@@ -121,13 +121,13 @@ This is a `/register` command with two inline parameters: `name` and `last_name`
     ]
 }
 ```
-This is a `/register` command with two multiple choice parameters: `name` and `last_name`. After calling this command the user will be presented with a menu to choose the value each parameter will have. As with all parameters both values will be interpolated in the `options` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
+This is a `/register` command with two multiple choice parameters: `name` and `last_name`. After calling this command the user will be presented with a menu to choose the value each parameter will have. As with all parameters both values will be interpolated in the `request` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
 
 - `confirm`: *boolean*. When `true` it will show a confirm dialog with all the parameter values before running the request.
 
-- `options`: *object*. This object contains all the configuration of the http request. All the possible options are thoroughly documented in [the requests.js options documentation](https://github.com/request/request#requestoptions-callback).
+- `request`: *object*. This object contains all the configuration of the http request. All the possible options are thoroughly documented in [the requests.js options documentation](https://github.com/request/request#requestoptions-callback).
 
-The request parameters declared in `params` will be interpolated on any of the properties of the `options` object by using the template syntax `{{{paramter_name}}}`. If you want to make it really easy to generate and test this `options` object, download and install [Postman](https://postman.com/) and use its [code generation option](https://learning.getpostman.com/docs/postman/sending-api-requests/generate-code-snippets/), selecting the `NodeJS -> Request` on the language dropdown.
+The request parameters declared in `params` will be interpolated on any of the properties of the `request` object by using the template syntax `{{{paramter_name}}}`. If you want to make it really easy to generate and test this `request` object, download and install [Postman](https://postman.com/) and use its [code generation option](https://learning.getpostman.com/docs/postman/sending-api-requests/generate-code-snippets/), selecting the `NodeJS -> Request` on the language dropdown.
 
 This would be the configuration for command called `example` with one inline parameter that is used as the value of the `X-Username` header and the query string `username` on the http request.
 
@@ -144,7 +144,7 @@ This would be the configuration for command called `example` with one inline par
                     }
                 ]
             },
-            "options": {
+            "request": {
                 "url": "https://somewebsite.com/register",
                 "headers": {
                     "X-Username": "{{{username}}}"
