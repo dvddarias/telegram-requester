@@ -20,28 +20,22 @@ It also sends a message to a team channel so everyone knows what is happening.
 
 ## Configuration
 
-To use this bot you need to create a `config.json` file with the bot details and a list of http requests, for example:
+To use this bot you need to create a `config.yml` file with the bot details and a list of http requests, for example:
 
-```json
-{
-    "bot_token":"REPLACE_THIS_WITH_A_VALID_BOT_ID",
-    "start_message": "This bot is to tryout Telegram Requester",
-    "help_message": "This is a very simple bot that pings an http api",
-    "access":[ "SOME_USER_ID" ],
-    "channels":[ "SOME_CHANNEL_ID" ],
-    "commands": [
-        {
-            "name": "ping",
-            "help": "Check wether he api is listening to the bot.",
-            "request": {
-                "method": "GET",
-                "url": "http://my.website.com/hooks/ping",
-            },
-            "broadcast": ["http_code", "headers", "username"],
-            "response": ["http_code", "body"]
-        },
-    ]
-}
+```yml
+bot_token: "REPLACE_THIS_WITH_A_VALID_BOT_ID"
+start_message: "This bot is to tryout Telegram Requester"
+help_message: "This is a very simple bot that pings an http api"
+access: [ "SOME_USER_ID" ]
+channels: [ "SOME_CHANNEL_ID" ]
+commands:
+    ping:
+        help: "Check wether he api is listening to the bot."
+        request:
+            method: "GET"
+            url: "http://my.website.com/hooks/ping"
+        broadcast: ["http_code", "headers", "username"]
+        response: ["http_code", "body"]
 ```
 
 ### Options:
@@ -76,7 +70,7 @@ On each command/request you can specify how the bot will respond to it. With the
 
 ---
 
-`commands`: *list*. Commands that can trigger HTTP requests. Each command object can have the following options:
+`commands`: *object*. Commands that can trigger HTTP requests. Each command object can have the following options:
 
 - `name`: *string*. This is the name of the command in telegram, and the id of the request/command, it must be unique.
 - `help`: *string*. The help message explaining what this command does, it is shown on `/help`.
@@ -84,43 +78,34 @@ On each command/request you can specify how the bot will respond to it. With the
 - `broadcast`: *list*. Parts of the http response that will be broadcasted to the channel list in the `channels` option, the possible options are: `"http_code", "params", "body", "headers", "username"`. To skip broadcasting to the channels do not include this key.
 - `params_inline`: *list*. This is the list of inline parameters of the command. Each parameter has: `name`-the name of the command, and `help`- the description of the command.  Inline parameters need to be included with the command. For example:
 
-```json
-{
-    "name": "register",
-    "params_inline":[
-        {
-            "name":"name",
-            "help":"The name of the user."
-        },
-        {
-            "name":"last_name",
-            "help":"The last name of the user."
-        }
-    ]
-}
+```yml
+name: "register",
+params_inline:
+  -
+    name: "name"
+    help: "The name of the user."
+  -
+    name: "last_name",
+    help: "The last name of the user."
 ```
 
 This is a `/register` command with two inline parameters: `name` and `last_name`. To call this command the message has to include two positional arguments. For example in `/register tony stark`, the value of the parameters are `name:tony` and `last_name:stark` both values will be interpolated in the `request` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
 
 - `params_choice`: *list*. This is the list of choice parameters. Each parameter has: `name`-the name of the command, `help`-message included in the menu and `options`-list of possible options to choose from. Choice parameters are shown as a menu with a list of possible options for each parameter. For example:
 
-```json
-{
-    "command": "register",
-    "params_choice":[
-        {
-            "name":"name",
-            "help":"What is your name?",
-            "options": ["David", "Tony", "Scarlet"]
-        },
-        {
-            "name":"last_name",
-            "help":"What is your last name?",
-            "options": ["Copperfield", "Stark", "Johansson"]
-        }
-    ]
-}
+```yml
+command: "register"
+params_choice:
+  -
+    name: "name"
+    help: "What is your name?"
+    options: ["David", "Tony", "Scarlet"]
+  -
+    name: "last_name",
+    help: "What is your last name?",
+    options: ["Copperfield", "Stark", "Johansson"]
 ```
+
 This is a `/register` command with two multiple choice parameters: `name` and `last_name`. After calling this command the user will be presented with a menu to choose the value each parameter will have. As with all parameters both values will be interpolated in the `request` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
 
 - `confirm`: *boolean*. When `true` it will show a confirm dialog with all the parameter values before running the request.
@@ -131,40 +116,29 @@ The request parameters declared in `params` will be interpolated on any of the p
 
 This would be the configuration for command called `example` with one inline parameter that is used as the value of the `X-Username` header and the query string `username` on the http request.
 
-```json
-{
-    "commands":[
-        {
-            "name": "example",
-            "params": {
-                "inline":[
-                    {
-                        "name":"username",
-                        "help":"The name of the user to register"
-                    }
-                ]
-            },
-            "request": {
-                "url": "https://somewebsite.com/register",
-                "headers": {
-                    "X-Username": "{{{username}}}"
-                },
-                "qs":{
-                    "username": "{{{username}}}"
-                }
-            },
-        }
-    ]
-}
-``` 
+```yml
+commands:
+    example:
+        params_inline:
+          -
+            name:"username"
+            help:"The name of the user to register"
+        request:
+            url: "https://somewebsite.com/register"
+            headers:
+                X-Username: "{{{username}}}"
+            qs:
+                username: "{{{username}}}"
+```
+
 When sending the command `\example ironman`, the bot will make a request to `https://somewebsite.com/register?username=ironman` with the header `X-Username` set to `ironman`.
 
 ## Docker
 
-To run it on a docker container mount the `config.json` file on the `/bot/config.json` path:
+To run it on a docker container mount the `config.yml` file on the `/bot/config.yml` path:
 
 ```bash
-docker run -v `pwd`/config.json:/bot/config.json dvdarias/telegram-requester
+docker run -v `pwd`/config.yml:/bot/config.yml dvdarias/telegram-requester
 ```
 
 ### Docker-Compose
@@ -174,5 +148,5 @@ services:
   bot:
     image: dvdarias/telegram-requester
     volumes:
-      - ./config.json:/bot/config.json
+      - ./config.yml:/bot/config.yml
 ```

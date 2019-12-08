@@ -5,11 +5,12 @@ const session = require('telegraf/session')
 const request = require("request");
 const Mustache = require("mustache");
 const uuidv1 = require('uuid/v1');
+const yaml = require('js-yaml');
 const fs = require('fs');
 
 // check and load configuration
 if (!process.env.CONFIG){
-    process.env.CONFIG = "./config.json"
+    process.env.CONFIG = "./config.yml"
 }
 try {
     var data = fs.readFileSync(process.env.CONFIG, 'utf8');
@@ -18,8 +19,10 @@ try {
     process.exit(1);
 }
 // TODO validate the config matches the bot configuration json schema
-bot_config = JSON.parse(data);
+const bot_config = yaml.safeLoad(data);
+// const bot_config = JSON.parse(data);
 // console.log("Bot configuration is set to:\n" + JSON.stringify(bot_config, null, 4));
+
 
 //if env variable is set, override config settings
 if (process.env.BOT_TOKEN) bot_config["bot_token"] = process.env.BOT_TOKEN
@@ -40,10 +43,14 @@ exitOnSignal('SIGINT');
 exitOnSignal('SIGTERM');
 
 //create a keyboard with all the commands in the configuration + /help command
+//also add a name key to each command object
 var keys = ["/help"];
-bot_config.commands.forEach(req => {
-    keys.push("/" + req.name);
-});
+for (const name in bot_config.commands) {
+    if (!bot_config.commands.hasOwnProperty(name)) continue
+    const req = bot_config.commands[name];
+    req.name = name
+    keys.push("/" + req.name);    
+}
 
 //in start (if allowed) activate the command keyboard.
 bot.start((ctx) =>{
@@ -111,9 +118,11 @@ commands_help = ""
 if (help) commands_help = `${help}\n\n`;
 commands_help += "Commands:\n"
 
-bot_config.commands.forEach(req => {
+for (const name in bot_config.commands) {
+    if (!bot_config.commands.hasOwnProperty(name)) continue
+    const req = bot_config.commands[name];
     commands_help += `/${req.name} ${req.help}\n`;
-});
+}
 commands_help += "/help Show this help message.\n";
 
 // on help, show te description and the command keyboard
@@ -132,7 +141,10 @@ const command_middleware = [
 ]
 
 // iterate over requests definition and declare the middleware methods for each
-bot_config.commands.forEach(req => {
+for (const name in bot_config.commands) {
+    if (!bot_config.commands.hasOwnProperty(name)) continue
+    const req = bot_config.commands[name];
+
     bot.command(req.name, 
         (ctx, next)=>{
             if (!ctx.session.activeCommands) ctx.session.activeCommands = {}
@@ -160,7 +172,7 @@ bot_config.commands.forEach(req => {
         processInlineParameters, 
         ...command_middleware
     );
-});
+}
 
 function getUserName(ctx) {
     var from = ctx.update.message.from;
