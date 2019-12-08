@@ -140,7 +140,7 @@ bot_config["requests"].forEach(req => {
             //cancel menus of active commands
             for (const id in ctx.session.activeCommands) {
                 if (ctx.session.activeCommands.hasOwnProperty(id)) {
-                    cancelInlineMenu(ctx.session, id, `another command was run`)                    
+                    cancelInlineMenu(ctx, id, `another command was run`)                    
                 }
             }
             
@@ -149,7 +149,7 @@ bot_config["requests"].forEach(req => {
             ctx.state.commandId = uuid
             ctx.session.activeCommands[uuid] = {
                 uuid: uuid,
-                req: req,
+                req: JSON.parse(JSON.stringify(req)), //store a copy of the request, it may be modified by dynamic choices
                 view: {}
             }
             
@@ -211,45 +211,82 @@ function processChoiceParameters(ctx, next) {
     if (req.params_choice.length > command.menu.step ) {
         const choice = req.params_choice[command.menu.step]
         console.log(`/${req.command} processing choice parameter: ${choice.name}.`)
-        
-        //fill the keyboard with the options
-        const keyboard = []
-        const included = []
-        for (let i = 0; i < choice.options.length; i++) {
-            const c = choice.options[i];
-            if (!included.includes(c)){
-                const value = `${command.uuid},${command.menu.step},${i}`;
-                //the format is uuid,menu_step,option_index
-                //when query_callback is called with this data it will extract the required information
-                keyboard.push(Markup.callbackButton(c, value))
-                included.push(c)
-            }            
-        }
 
-        keyboard.push(Markup.callbackButton("❌ Cancel Request", `${command.uuid},${command.menu.step},${-1}` ))
+        //this gets the options instantly if static and does the request if dynamic
+        getOptions(choice.options, command.view).then((options)=>{
+            //replace the options key with the request result
+            choice.options = options
+            //fill the keyboard with the options
+            const keyboard = []
+            const included = []
+            for (let i = 0; i < options.length; i++) {
+                const c = options[i];
+                if (!included.includes(c)) {
+                    const value = `${command.uuid},${command.menu.step},${i}`;
+                    //the format is uuid,menu_step,option_index
+                    //when query_callback is called with this data it will extract the required information
+                    keyboard.push(Markup.callbackButton(c, value))
+                    included.push(c)
+                }
+            }
 
-        function wrap (btn, index, currentRow) { return currentRow.length == 2 || index == keyboard.length - 1 }
+            keyboard.push(Markup.callbackButton("❌ Cancel Request", `${command.uuid},${command.menu.step},${-1}`))
 
-        //if first menu in the list of choice options then reply with new message
-        if(create_menu){
-            ctx.reply(choice.help, Markup.inlineKeyboard(keyboard, { wrap: wrap }).extra())
-                .then((results) => {
-                    command.menu.message_id = results.message_id;
-                    command.menu.chat_id = results.chat.id;
-                })
-        }
-        else{
-            //edit the existing menu if not the first
-            bot.telegram.editMessageText(
-                command.menu.chat_id,
-                command.menu.message_id, null,
-                choice.help, Markup.inlineKeyboard(keyboard, { wrap: wrap }).extra()
-            )     
-        }
+            function wrap(btn, index, currentRow) {
+                return currentRow.length == 2 || index == keyboard.length - 1
+            }
+
+            //if first menu in the list of choice options then reply with new message
+            if (create_menu) {
+                ctx.reply(choice.help, Markup.inlineKeyboard(keyboard, {
+                        wrap: wrap
+                    }).extra())
+                    .then((results) => {
+                        command.menu.message_id = results.message_id;
+                        command.menu.chat_id = results.chat.id;
+                    })
+            } else {
+                //edit the existing menu if not the first
+                bot.telegram.editMessageText(
+                    command.menu.chat_id,
+                    command.menu.message_id, null,
+                    choice.help, Markup.inlineKeyboard(keyboard, {
+                        wrap: wrap
+                    }).extra()
+                )
+            }
+        },(error)=>{
+            //this is if there is an error on the dynamic choice options request
+            console.log(`Error requesting the "${choice.name}" options array`)
+            console.log(error)
+            cancelInlineMenu(ctx, command.uuid,`error requesting the "${choice.name}" options`)
+        })        
     }
     else{        
         return next()
     }
+}
+
+function getOptions(options, view){
+    return new Promise((resolve, reject)=>{
+        if (Array.isArray(options)) {
+            resolve(options)
+        }
+        else {
+            //replace the values of the view object on the options of the dynamic choice request
+            const replaced = Mustache.render(JSON.stringify(options), view);
+            request(JSON.parse(replaced), (error, response, body) => {
+                if (error) {
+                    reject(error)                   
+                } else {
+                    resolve(JSON.parse(body))
+                }
+            });
+
+        }
+
+    }) 
+    
 }
 
 //control usage access to commands
@@ -269,7 +306,7 @@ bot.use((ctx, next) => {
             //if the option is negative it means cancel the command, this is the case in the cancel button of each menu
             //and in the cancel button in case of confirmation: true
             if(option_index<0){
-                cancelInlineMenu(ctx.session,uuid,"cancel was pressed")
+                cancelInlineMenu(ctx,uuid,"cancel was pressed")
             }
             else{
                 //index "c" means is the confirmation menu so set confirmed to true
@@ -290,13 +327,19 @@ bot.use((ctx, next) => {
 }, 
 ...command_middleware)
 
-function cancelInlineMenu(session, commandId, reason) {
+function cancelInlineMenu(ctx, commandId, reason) {
     //this cancels the command and removes it from the active commands list
-    const command = session.activeCommands[commandId];
-    if (command && command.menu) {
-        const menu = command.menu
-        bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, `❌ /${command.req.command} aborted: ${reason}.`)
-        delete session.activeCommands[commandId];
+    const command = ctx.session.activeCommands[commandId];
+    if (command) {
+        const cancel_message = `❌ /${command.req.command} aborted: ${reason}.`
+        if(command.menu && command.menu.message_id){
+            const menu = command.menu
+            bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, cancel_message)
+        }
+        else{
+            ctx.reply(cancel_message, Extra.HTML())
+        }   
+        delete ctx.session.activeCommands[commandId];
     }
 }
 
@@ -311,10 +354,10 @@ function confirmRequest(ctx, next){
         Markup.callbackButton("✅ Ok", `${command.uuid},c,1`)
     ]
 
-    const confirmation = `Confirm /${command.req.command}:\n${getParamList(command.view)}`
+    const confirmation = `Confirm /${command.req.command}\n${getParamList(command.view)}`
     
     //the confirmation may be the first menu, so modify it or create it. 
-    if (command.menu) {
+    if (command.menu && command.menu.message_id) {
         const menu = command.menu
         bot.telegram.editMessageText(
             menu.chat_id, 
@@ -339,7 +382,7 @@ function executeRequest(ctx, next) {
     const running_message = `⏳ /${command.req.command} running...\n${getParamList(command.view)}`;
 
     //the message with the status of the command may be the first response, so modify it or create it. 
-    if(command.menu){
+    if(command.menu && command.menu.message_id){
         const menu = command.menu
         bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, running_message, Extra.HTML())
         delete ctx.session.activeCommands[command.uuid];
@@ -354,18 +397,15 @@ function executeRequest(ctx, next) {
 
     //replace the values of the view object on the options of the request
     const replaced = Mustache.render(JSON.stringify(req.options), view);
+    req.options = JSON.parse(replaced)
 
-    // DEBUG TEMPLATING
-    // console.log(view)
-    // console.log(JSON.stringify(req.options))
-    // console.log(replaced)
 
-    request(JSON.parse(replaced), (error, response, body) => {
+    request(req.options, (error, response, body) => {
 
         if (error) {
             console.log(`There was an error on the request triggered by: ${req.command}`)
             console.log(error)
-            console.log(`Options:\n${JSON.stringify(req.options)}`)
+            console.log(`Options:\n${req.options}`)
             
             bot.telegram.editMessageText(
                 command.menu.chat_id,
