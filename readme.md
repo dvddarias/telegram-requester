@@ -70,6 +70,26 @@ On each command/request you can specify how the bot will respond to it. With the
 
 ---
 
+`parameters`: *object*. Object with key-value pairs that will be interpolated on every request object within the commands. For example:
+
+```yml
+parameters:
+    url: "https://myserver.com/hooks"
+    auth: "Basic HUYEIHFSIJ4566463D====="
+
+commands:
+    ping:
+        help: Check wether my server is listening.
+        request:
+            url: "{{{url}}}/ping"
+            headers:
+                authorization: "{{{auth}}}"
+```
+
+This is a `/ping` command with two parameters: `url` and `auth`. When this request is triggered the values on the `parameters` keys will be interpolated in the `request` object wherever `{{{url}}}` and `{{{auth}}}` is found.
+
+---
+
 `commands`: *object*. Commands that can trigger HTTP requests. Each command object can have the following options:
 
 - `name`: *string*. This is the name of the command in telegram, and the id of the request/command, it must be unique.

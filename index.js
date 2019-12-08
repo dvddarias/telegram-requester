@@ -23,9 +23,16 @@ const bot_config = yaml.safeLoad(data);
 // const bot_config = JSON.parse(data);
 // console.log("Bot configuration is set to:\n" + JSON.stringify(bot_config, null, 4));
 
-
+//-----pre-process the configuration-----
 //if env variable is set, override config settings
 if (process.env.BOT_TOKEN) bot_config["bot_token"] = process.env.BOT_TOKEN
+//add the name field to each command
+for (const name in bot_config.commands) {
+    if (bot_config.commands.hasOwnProperty(name)) bot_config.commands[name].name = name;
+}   
+//if no parameters add an empty one
+if (!bot_config.parameters) bot_config.parameters={}
+
 // create the bot
 const bot = new Telegraf(bot_config["bot_token"])
 
@@ -43,12 +50,10 @@ exitOnSignal('SIGINT');
 exitOnSignal('SIGTERM');
 
 //create a keyboard with all the commands in the configuration + /help command
-//also add a name key to each command object
 var keys = ["/help"];
 for (const name in bot_config.commands) {
     if (!bot_config.commands.hasOwnProperty(name)) continue
     const req = bot_config.commands[name];
-    req.name = name
     keys.push("/" + req.name);    
 }
 
@@ -162,7 +167,8 @@ for (const name in bot_config.commands) {
             ctx.session.activeCommands[uuid] = {
                 uuid: uuid,
                 req: JSON.parse(JSON.stringify(req)), //store a copy of the request, it may be modified by dynamic choices
-                view: {},
+                view: {}, 
+                default_view: JSON.parse(JSON.stringify(bot_config.parameters)), //store a copy of the default parameters
                 username: getUserName(ctx)
             }
             
@@ -232,7 +238,7 @@ function processChoiceParameters(ctx, next) {
         console.log(`/${req.name} processing choice parameter: ${choice.name}.`)
 
         //this gets the options instantly if static and does the request if dynamic
-        getOptions(choice.options, command.view).then((options)=>{
+        getOptions(choice.options, command).then((options)=>{
             //replace the options key with the request result
             choice.options = options.filter(function (value, index, arr) {
                 return value!="";
@@ -293,26 +299,27 @@ function processChoiceParameters(ctx, next) {
     }
 }
 
-function getOptions(options, view){
+function getOptions(options, command){
     return new Promise((resolve, reject)=>{
         if (Array.isArray(options)) {
             resolve(options)
         }
         else {
-            //replace the values of the view object on the options of the dynamic choice request
-            const replaced = Mustache.render(JSON.stringify(options), view);
-            request(JSON.parse(replaced), (error, response, body) => {
+            //replace the values of the command views on the options of the dynamic choice request
+            var options_string = JSON.stringify(options)
+            //first the default ones then the user defined
+            options_string = Mustache.render(options_string, command.default_view);
+            options_string = Mustache.render(options_string, command.view);
+
+            request(JSON.parse(options_string), (error, response, body) => {
                 if (error) {
                     reject(error)                   
                 } else {
                     resolve(JSON.parse(body))
                 }
             });
-
         }
-
     }) 
-    
 }
 
 //control usage access to commands
@@ -405,7 +412,7 @@ function executeRequest(ctx, next) {
     const req = command.req
     const view = command.view
 
-    const running_message = `⏳ /${command.req.name} running...\n${getParamList(command.view)}`;
+    const running_message = `⏳ /${command.req.name} running...\n${getParamList(view)}`;
 
     //this promise will be waited on to modify the message again
     var edit_message_promise;
@@ -423,11 +430,13 @@ function executeRequest(ctx, next) {
         })
     }
 
-    //replace the values of the view object on the options of the request
-    const replaced = Mustache.render(JSON.stringify(req.request), view);
-    req.request = JSON.parse(replaced)
+    //replace the values of the command views on the options of the dynamic choice request
+    var options_string = JSON.stringify(req.request)
+    //first the default ones then the user defined
+    options_string = Mustache.render(options_string, command.default_view);
+    options_string = Mustache.render(options_string, view);
 
-
+    req.request = JSON.parse(options_string)
     request(req.request, (error, response, body) => {
 
         if (error) {
@@ -439,7 +448,7 @@ function executeRequest(ctx, next) {
                 command.menu.chat_id,
                 command.menu.message_id, 
                 null, 
-                `❌ /${command.req.name} error.\n${getParamList(command.view)}`,
+                `❌ /${command.req.name} error.\n${getParamList(view)}`,
                 Extra.HTML())
         }
         else {
@@ -452,7 +461,7 @@ function executeRequest(ctx, next) {
                     command.menu.chat_id,
                     command.menu.message_id,
                     null,
-                    `✅ /${command.req.name} done.\n${getParamList(command.view)}`,
+                    `✅ /${command.req.name} done.\n${getParamList(view)}`,
                     Extra.HTML())                            
             })
             
