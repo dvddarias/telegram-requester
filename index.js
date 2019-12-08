@@ -388,15 +388,17 @@ function executeRequest(ctx, next) {
 
     const running_message = `⏳ /${command.req.name} running...\n${getParamList(command.view)}`;
 
-    //the message with the status of the command may be the first response, so modify it or create it. 
+    //this promise will be waited on to modify the message again
+    var edit_message_promise;
+    
+    //the message with the status of the command may be the first response, so modify it or create it.
     if(command.menu && command.menu.message_id){
         const menu = command.menu
-        bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, running_message, Extra.HTML())
-        delete ctx.session.activeCommands[command.uuid];
+        edit_message_promise = bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, running_message, Extra.HTML())
     }
     else{
         command.menu = { step: 0 }
-        ctx.reply(running_message, Extra.HTML()).then((results) => {
+        edit_message_promise = ctx.reply(running_message, Extra.HTML()).then((results) => {
             command.menu.message_id = results.message_id;
             command.menu.chat_id = results.chat.id;
         })
@@ -426,12 +428,15 @@ function executeRequest(ctx, next) {
             if (message != null && message != "") ctx.reply(message, Extra.HTML())
             broadcastRequest(req, command.username, response, body, view);
 
-            bot.telegram.editMessageText(
-                command.menu.chat_id,
-                command.menu.message_id,
-                null,
-                `✅ /${command.req.name} done.\n${getParamList(command.view)}`,
-                Extra.HTML())            
+            edit_message_promise.then((results)=>{
+                bot.telegram.editMessageText(
+                    command.menu.chat_id,
+                    command.menu.message_id,
+                    null,
+                    `✅ /${command.req.name} done.\n${getParamList(command.view)}`,
+                    Extra.HTML())                            
+            })
+            
         }
 
         delete ctx.session.activeCommands[command.uuid];
