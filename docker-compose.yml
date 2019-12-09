@@ -6,5 +6,6 @@ services:
     container_name: bot
     volumes:
       - ./:/bot
+      - /var/run/docker.sock:/docker.sock
     working_dir: /bot
     command: ["node", "index.js"]

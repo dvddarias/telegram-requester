@@ -7,6 +7,7 @@ const Mustache = require("mustache");
 const uuidv1 = require('uuid/v1');
 const yaml = require('js-yaml');
 const fs = require('fs');
+const jp = require('jsonpath-plus').JSONPath;
 
 // check and load configuration
 if (!process.env.CONFIG){
@@ -30,8 +31,9 @@ if (process.env.BOT_TOKEN) bot_config["bot_token"] = process.env.BOT_TOKEN
 for (const name in bot_config.commands) {
     if (bot_config.commands.hasOwnProperty(name)) bot_config.commands[name].name = name;
 }   
-//if no parameters add an empty one
+//if no parameters or headers add empty ones
 if (!bot_config.parameters) bot_config.parameters={}
+if (!bot_config.headers) bot_config.headers = {}
 
 // create the bot
 const bot = new Telegraf(bot_config["bot_token"])
@@ -207,7 +209,7 @@ function processInlineParameters(ctx, next){
                         help += `\n<b>${param.name}</b>: ${param.help}`
                     }
                     ctx.reply(error + help, Extra.HTML())
-                    return
+                    delete ctx.session.activeCommands[ctx.state.commandId];
                 }
                 else {
                     for (let i = 0; i < inline.length; i++) {
@@ -307,15 +309,20 @@ function getOptions(options, command){
         else {
             //replace the values of the command views on the options of the dynamic choice request
             var options_string = JSON.stringify(options)
-            //first the default ones then the user defined
-            options_string = Mustache.render(options_string, command.default_view);
-            options_string = Mustache.render(options_string, command.view);
+
+            const render_view = JSON.parse(JSON.stringify(command.view))
+            for (const key in command.default_view) {
+                if (command.default_view.hasOwnProperty(key) && !render_view.hasOwnProperty(key)) {
+                    render_view[key] = command.default_view[key]
+                }
+            }
+            options_string = Mustache.render(options_string, render_view);
 
             request(JSON.parse(options_string), (error, response, body) => {
                 if (error) {
                     reject(error)                   
                 } else {
-                    resolve(JSON.parse(body))
+                    resolve(JSON.parse(getResponseBody(command.req, body)))
                 }
             });
         }
@@ -432,11 +439,24 @@ function executeRequest(ctx, next) {
 
     //replace the values of the command views on the options of the dynamic choice request
     var options_string = JSON.stringify(req.request)
-    //first the default ones then the user defined
-    options_string = Mustache.render(options_string, command.default_view);
-    options_string = Mustache.render(options_string, view);
 
+    const render_view = JSON.parse(JSON.stringify(view))
+    for (const key in command.default_view) {
+        if (command.default_view.hasOwnProperty(key) && !render_view.hasOwnProperty(key)) {
+            render_view[key] = command.default_view[key]
+        }
+    }
+    options_string = Mustache.render(options_string, render_view);
     req.request = JSON.parse(options_string)
+
+    if (!req.request.headers) req.request.headers={}
+    //include default headers in the request
+    for (const header in bot_config.headers) {
+        if (bot_config.headers.hasOwnProperty(header) && !req.request.headers.hasOwnProperty(header)) {
+            req.request.headers[header] = bot_config.headers[header]
+        }
+    }
+
     request(req.request, (error, response, body) => {
 
         if (error) {
@@ -495,9 +515,38 @@ function getMessageContent(req, username, response, body, view, is_broadcast){
     if (content.includes("params")) message += getParamList(view)
     if (content.includes("http_code")) message += getHttpCodeMessage(response)
     if (content.includes("headers")) message += getHttpHeaders(response)
-    if (content.includes("body")) message += `📦 Response:\n${body}\n`
+    if (content.includes("body")) message += `📦 Response:\n${getResponseBody(req, body)}\n`
 
     return message
+}
+
+function getResponseBody(req, body){
+    var response_body = body
+
+    if(req.request.json_query){        
+        var format = req.request.json_query.format
+        if(!format) format = "list"
+        const query = req.request.json_query.query
+
+        const paths = jp( { json: JSON.parse(body), path: query, resultType: "all" } );
+
+        if (format === "list") {
+            response_body = []
+            for (let i = 0; i < paths.length; i++) {
+                const p = paths[i];
+                response_body.push(p.value);
+            }
+            response_body = JSON.stringify(response_body)
+        }
+        else if (format === "path") {
+            response_body = ""
+            for (let i = 0; i < paths.length; i++) {
+                const p = paths[i];
+                response_body += `<i>${p.pointer.substr(1)}</i>: ${p.value}\n`
+            }
+        }
+    }
+    return response_body
 }
 
 function getParamList(view) {

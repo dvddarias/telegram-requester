@@ -5,7 +5,7 @@
   "main": "index.js",
   "dependencies": {
     "js-yaml": "^3.13.1",
-    "jsonpath": "^1.0.2",
+    "jsonpath-plus": "^2.0.0",
     "jsonschema": "^1.2.4",
     "mustache": "^3.1.0",
     "request": "^2.88.0",

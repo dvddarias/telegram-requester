@@ -90,6 +90,24 @@ This is a `/ping` command with two parameters: `url` and `auth`. When this reque
 
 ---
 
+`headers`: *object*. Object with key-value pairs to be included as headers on every request object within the commands. This is useful to avoid repeating headers that are common in all the requests, like `authorization`, `content-type` or `host`. For example:
+
+```yml
+parameters:
+    url: "https://myserver.com/hooks"
+
+headers:
+    authorization: "Basic HUYEIHFSIJ4566463D====="
+
+commands:
+    ping:
+        help: Check wether my server is listening.
+        request:
+            url: "{{{url}}}/ping"
+```
+
+---
+
 `commands`: *object*. Commands that can trigger HTTP requests. Each command object can have the following options:
 
 - `name`: *string*. This is the name of the command in telegram, and the id of the request/command, it must be unique.
@@ -130,9 +148,14 @@ This is a `/register` command with two multiple choice parameters: `name` and `l
 
 - `confirm`: *boolean*. When `true` it will show a confirm dialog with all the parameter values before running the request.
 
-- `request`: *object*. This object contains all the configuration of the http request. All the possible options are thoroughly documented in [the requests.js options documentation](https://github.com/request/request#requestoptions-callback).
+- `request`: *object*. This object contains all the configuration of the http request. All the http request options are thoroughly documented in [the requests.js options documentation](https://github.com/request/request#requestoptions-callback). This object can optionally include:
 
-The request parameters declared in `params` will be interpolated on any of the properties of the `request` object by using the template syntax `{{{paramter_name}}}`. If you want to make it really easy to generate and test this `request` object, download and install [Postman](https://postman.com/) and use its [code generation option](https://learning.getpostman.com/docs/postman/sending-api-requests/generate-code-snippets/), selecting the `NodeJS -> Request` on the language dropdown.
+  - `json_query`: *object*. In case the response of the request is in JSON format, a [JSONPath](https://github.com/s3u/JSONPath) can be applied to it. This object has two possible keys:
+  
+      - `query` with the JSONPath string to be used. To test your jsonpaths you can go to [JSON Query Tester](http://www.jsonquerytool.com/) and select *"JSONPath Plus"* as the query type.
+      - `format` it can be the string `"list"`(default), to format it as a JSON list or `"path"`: to show human readable values.
+
+All the request parameters declared in `parameters`, `params_inline` and `params_choice` will be interpolated on any of the properties of the `request` object (including the `json_query` field) by using the template syntax `{{{parameter_name}}}`. If you want to make it really easy to generate and test this `request` object, download and install [Postman](https://postman.com/) and use its [code generation option](https://learning.getpostman.com/docs/postman/sending-api-requests/generate-code-snippets/), selecting the `NodeJS -> Request` on the language dropdown.
 
 This would be the configuration for command called `example` with one inline parameter that is used as the value of the `X-Username` header and the query string `username` on the http request.
 
