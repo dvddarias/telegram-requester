@@ -22,18 +22,38 @@ try {
 // TODO validate the config matches the bot configuration json schema
 const bot_config = yaml.safeLoad(data);
 // const bot_config = JSON.parse(data);
-// console.log("Bot configuration is set to:\n" + JSON.stringify(bot_config, null, 4));
+
 
 //-----pre-process the configuration-----
 //if env variable is set, override config settings
 if (process.env.BOT_TOKEN) bot_config["bot_token"] = process.env.BOT_TOKEN
-//add the name field to each command
-for (const name in bot_config.commands) {
-    if (bot_config.commands.hasOwnProperty(name)) bot_config.commands[name].name = name;
-}   
-//if no parameters or headers add empty ones
-if (!bot_config.parameters) bot_config.parameters={}
+//if no global parameters or global headers add empty ones
+if (!bot_config.parameters) bot_config.parameters = {}
 if (!bot_config.headers) bot_config.headers = {}
+//add the name field to each command and empty parameters array
+for (const name in bot_config.commands) {
+    if (bot_config.commands.hasOwnProperty(name)){
+        const command = bot_config.commands[name];
+        command.name = name;
+        if (!command.parameters) command.parameters=[]
+        //separate inline type parameters from choice and input type
+        command.params_inline = []
+        const params_sorted = []
+        for (let i = 0; i < command.parameters.length; i++) {
+            const param = command.parameters[i];
+            if (param.type === "inline") command.params_inline.push(param);
+            else params_sorted.push(param)            
+        }
+        command.parameters = params_sorted;
+    }
+}   
+
+//----------------------------------------
+
+//console.log("Bot configuration is set to:\n" + JSON.stringify(bot_config, null, 4));
+
+//to remove an element form an array: I hate this!!!
+function arrayRemove(arr, value){return arr.filter(function(ele){return ele != value;});}
 
 // create the bot
 const bot = new Telegraf(bot_config["bot_token"])
@@ -193,58 +213,53 @@ function processInlineParameters(ctx, next){
     const command = ctx.session.activeCommands[ctx.state.commandId]
     const req = command.req
     //find the parameters in the command and fill the view object
-    if (req.params_inline) {
-        console.log(`/${req.name} processing inline parameters.`)
-        const inline = req.params_inline;
-        console.log(`Message: ${ctx.message.text.trim()}`)
-        const parts = regex.exec(ctx.message.text.trim());
-        if (parts) {
-            const args = !parts[3] ? [] : parts[3].split(/\s+/).filter(arg => arg.length);
-            if (args) {
-                if (args.length < inline.length) {
-                    error = `/${req.name} requires <b>${inline.length}</b> positional argument${(inline.length > 1 ? "s:" : ":")}`
-                    help = ""
-                    for (let i = 0; i < inline.length; i++) {
-                        const param = inline[i];
-                        help += `\n<b>${param.name}</b>: ${param.help}`
-                    }
-                    ctx.reply(error + help, Extra.HTML())
-                    delete ctx.session.activeCommands[ctx.state.commandId];
+    if (req.params_inline.length==0) return next()
+    const inline = req.params_inline;
+    console.log(`/${req.name} processing inline parameters.`)
+    console.log(`Message: ${ctx.message.text.trim()}`)
+    const parts = regex.exec(ctx.message.text.trim());
+    if (parts) {
+        const args = !parts[3] ? [] : parts[3].split(/\s+/).filter(arg => arg.length);
+        if (args) {
+            if (args.length < inline.length) {
+                error = `/${req.name} requires <b>${inline.length}</b> positional argument${(inline.length > 1 ? "s:" : ":")}`
+                help = ""
+                for (let i = 0; i < inline.length; i++) {
+                    const param = inline[i];
+                    help += `\n<b>${param.name}</b>: ${param.help}`
                 }
-                else {
-                    for (let i = 0; i < inline.length; i++) {
-                        const param = inline[i];
-                        command.view[param.name] = args[i]
-                    }
-                    return next()
+                ctx.reply(error + help, Extra.HTML())
+                delete ctx.session.activeCommands[ctx.state.commandId];
+            }
+            else {
+                for (let i = 0; i < inline.length; i++) {
+                    const param = inline[i];
+                    command.view[param.name] = args[i]
                 }
+                return next()
             }
         }
-        console.log(`There was an error parsing the command: ${ctx.message.text.trim()}`)
-        return
     }
-    else{
-        return next()
-    }
+    console.log(`There was an error parsing the command: ${ctx.message.text.trim()}`)
 }
 
 function processChoiceParameters(ctx, next) {
-    const command = ctx.session.activeCommands[ctx.state.commandId]
-    if (!command.req.params_choice) return next()
+    const command = ctx.session.activeCommands[ctx.state.commandId];
+    const req = command.req;
+    if (req.parameters.length==0) return next()
+
     const create_menu = !command.menu
     if (create_menu) command.menu = { step: 0 }
+    
     //find the parameters in the command and fill the view object
-    const req = command.req
-    if (req.params_choice.length > command.menu.step ) {
-        const choice = req.params_choice[command.menu.step]
+    if (req.parameters.length > command.menu.step && req.parameters[command.menu.step].type ==="choice") {
+        const choice = req.parameters[command.menu.step]
         console.log(`/${req.name} processing choice parameter: ${choice.name}.`)
 
         //this gets the options instantly if static and does the request if dynamic
         getOptions(choice.options, command).then((options)=>{
-            //replace the options key with the request result
-            choice.options = options.filter(function (value, index, arr) {
-                return value!="";
-            });
+            //if is a list of strings move it to the format "{ name:, value: }"
+            choice.options = expandOptions(options);
 
             if(choice.options.length==0){
                 cancelInlineMenu(ctx, command.uuid, `empty "${choice.name}" options`)
@@ -253,13 +268,13 @@ function processChoiceParameters(ctx, next) {
             //fill the keyboard with the options
             const keyboard = []
             const included = []
-            for (let i = 0; i < options.length; i++) {
-                const c = options[i];
+            for (let i = 0; i < choice.options.length; i++) {
+                const c = choice.options[i];
                 if (!included.includes(c)) {
                     const value = `${command.uuid},${command.menu.step},${i}`;
                     //the format is uuid,menu_step,option_index
                     //when query_callback is called with this data it will extract the required information
-                    keyboard.push(Markup.callbackButton(c, value))
+                    keyboard.push(Markup.callbackButton(c.name, value))
                     included.push(c)
                 }
             }
@@ -299,6 +314,25 @@ function processChoiceParameters(ctx, next) {
     else{        
         return next()
     }
+}
+
+//if is a list of strings move it to the format "{ name:, value: }"
+function expandOptions(options){
+    const result = []
+    for (let i = 0; i < options.length; i++) {
+        const opt = options[i];
+        if(opt===null) continue;
+        if(typeof opt === 'string'){
+            if(opt!=="") result.push( { name: opt, value: opt })
+        }
+        else if(typeof opt === 'object'){
+            if(opt.name && opt.name!=="" && opt.name!==null && !opt.value){
+                opt.value = opt.name;
+            }
+            result.push(opt)
+        }
+    }
+    return result;
 }
 
 function getOptions(options, command){
@@ -356,9 +390,9 @@ bot.use((ctx, next) => {
                 }
                 else{
                     //set the selected choice in the view and increase the step
-                    const choice = command.req.params_choice[menu_index]
-                    command.view[choice.name] = choice.options[option_index]
-                    command.menu.step += 1
+                    const choice = command.req.parameters[menu_index];
+                    command.view[choice.name] = choice.options[option_index].value;
+                    command.menu.step += 1;
                     return next()
                 }
             }  
@@ -435,6 +469,20 @@ function executeRequest(ctx, next) {
             command.menu.message_id = results.message_id;
             command.menu.chat_id = results.chat.id;
         })
+    }
+
+    //if request is empty do nothing
+    if(!req.request){
+        edit_message_promise.then((results) => {
+            bot.telegram.editMessageText(
+                command.menu.chat_id,
+                command.menu.message_id,
+                null,
+                `✅ /${command.req.name} did nothing.\n${getParamList(view)}`,
+                Extra.HTML())
+        })
+        delete ctx.session.activeCommands[command.uuid];
+        return next()
     }
 
     //replace the values of the command views on the options of the dynamic choice request
