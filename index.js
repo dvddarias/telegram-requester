@@ -163,6 +163,7 @@ bot.help((ctx) => ctx.reply(commands_help,
 // list of methods and order they will be called in on each command
 const command_middleware = [
     processChoiceParameters,
+    processQuestionParameters,
     confirmRequest,
     executeRequest
 ]
@@ -186,12 +187,17 @@ for (const name in bot_config.commands) {
             //set a new active command on the session, no menu yet
             const uuid = uuidv1()
             ctx.state.commandId = uuid
+            ctx.session.waiting = false;
             ctx.session.activeCommands[uuid] = {
                 uuid: uuid,
                 req: JSON.parse(JSON.stringify(req)), //store a copy of the request, it may be modified by dynamic choices
                 view: {}, 
                 default_view: JSON.parse(JSON.stringify(bot_config.parameters)), //store a copy of the default parameters
-                username: getUserName(ctx)
+                username: getUserName(ctx),
+                menu: {
+                    step:0,
+                    enabled: false
+                }
             }
             
             console.log(`/${req.name} requested.`)
@@ -246,12 +252,10 @@ function processInlineParameters(ctx, next){
 function processChoiceParameters(ctx, next) {
     const command = ctx.session.activeCommands[ctx.state.commandId];
     const req = command.req;
+
     if (req.parameters.length==0) return next()
 
-    const create_menu = !command.menu
-    if (create_menu) command.menu = { step: 0 }
-    
-    //find the parameters in the command and fill the view object
+    //find the current parameter in the command and fill the view object
     if (req.parameters.length > command.menu.step && req.parameters[command.menu.step].type ==="choice") {
         const choice = req.parameters[command.menu.step]
         console.log(`/${req.name} processing choice parameter: ${choice.name}.`)
@@ -286,16 +290,7 @@ function processChoiceParameters(ctx, next) {
             }
 
             //if first menu in the list of choice options then reply with new message
-            if (create_menu) {
-                ctx.reply(choice.help, Markup.inlineKeyboard(keyboard, {
-                        wrap: wrap
-                    }).extra())
-                    .then((results) => {
-                        command.menu.message_id = results.message_id;
-                        command.menu.chat_id = results.chat.id;
-                    })
-            } else {
-                //edit the existing menu if not the first
+            if (command.menu.enabled) {
                 bot.telegram.editMessageText(
                     command.menu.chat_id,
                     command.menu.message_id, null,
@@ -303,6 +298,16 @@ function processChoiceParameters(ctx, next) {
                         wrap: wrap
                     }).extra()
                 )
+            } else {
+                ctx.reply(choice.help, Markup.inlineKeyboard(keyboard, {
+                    wrap: wrap
+                }).extra())
+                    .then((results) => {
+                        command.menu.message_id = results.message_id;
+                        command.menu.chat_id = results.chat.id;
+                        command.menu.enabled = true;
+                    });
+
             }
         },(error)=>{
             //this is if there is an error on the dynamic choice options request
@@ -363,10 +368,39 @@ function getOptions(options, command){
     }) 
 }
 
+function processQuestionParameters(ctx, next) {
+    const command = ctx.session.activeCommands[ctx.state.commandId];
+    const req = command.req;
+    if (req.parameters.length == 0) return next()
+
+    //find the current parameter in the command and fill the view object
+    if (req.parameters.length > command.menu.step && req.parameters[command.menu.step].type === "question") {
+        const question = req.parameters[command.menu.step]
+        console.log(`/${req.name} processing question parameter: ${question.name}.`)
+
+        ctx.session.waiting = ctx.state.commandId;
+
+        //if first menu in the list of choice options then reply with new message
+        if (!command.menu.enabled) {
+            ctx.reply(question.help,Extra.HTML());
+        } else {
+            //edit the existing menu if not the first
+            bot.telegram.editMessageText(
+                command.menu.chat_id,
+                command.menu.message_id, null,
+                question.help,Extra.HTML())
+        }
+        command.menu.enabled = false;
+    }
+    else {
+        return next()
+    }
+}
+
 //control usage access to commands
 bot.use((ctx, next) => {
     //handle actions on inline menus
-    if (ctx.updateType == 'callback_query') {
+    if (ctx.updateType === 'callback_query') {
         //extract the data from the payload
         const data = ctx.update.callback_query.data.split(",");
         const uuid = data[0]
@@ -398,15 +432,26 @@ bot.use((ctx, next) => {
             }  
         }
     }
+    else if(ctx.updateType==='message' && ctx.session.waiting){
+        ctx.state.commandId = ctx.session.waiting;
+        const command = ctx.session.activeCommands[ctx.session.waiting]
+        ctx.session.waiting = false;
+        //set the selected choice in the view and increase the step
+        const question = command.req.parameters[command.menu.step];
+        command.view[question.name] = ctx.update.message.text
+        command.menu.step += 1;
+        return next()
+    }
 }, 
 ...command_middleware)
+
 
 function cancelInlineMenu(ctx, commandId, reason) {
     //this cancels the command and removes it from the active commands list
     const command = ctx.session.activeCommands[commandId];
     if (command) {
         const cancel_message = `❌ /${command.req.name} aborted: ${reason}.`
-        if(command.menu && command.menu.message_id){
+        if(command.menu.enabled){
             const menu = command.menu
             bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, cancel_message)
         }
@@ -431,7 +476,7 @@ function confirmRequest(ctx, next){
     const confirmation = `Confirm /${command.req.name}${param_list==""?".":" with:\n"+param_list}`
     
     //the confirmation may be the first menu, so modify it or create it. 
-    if (command.menu && command.menu.message_id) {
+    if (command.menu.enabled) {
         const menu = command.menu
         bot.telegram.editMessageText(
             menu.chat_id, 
@@ -444,6 +489,7 @@ function confirmRequest(ctx, next){
         ctx.reply(confirmation, Extra.HTML().markup(m => m.inlineKeyboard(keyboard))).then((results) => {
             command.menu.message_id = results.message_id;
             command.menu.chat_id = results.chat.id;
+            command.menu.enabled = true;
         })        
     }    
 }
@@ -459,7 +505,7 @@ function executeRequest(ctx, next) {
     var edit_message_promise;
     
     //the message with the status of the command may be the first response, so modify it or create it.
-    if(command.menu && command.menu.message_id){
+    if(command.menu.enabled){
         const menu = command.menu
         edit_message_promise = bot.telegram.editMessageText(menu.chat_id, menu.message_id, null, running_message, Extra.HTML())
     }
@@ -468,6 +514,7 @@ function executeRequest(ctx, next) {
         edit_message_promise = ctx.reply(running_message, Extra.HTML()).then((results) => {
             command.menu.message_id = results.message_id;
             command.menu.chat_id = results.chat.id;
+            command.menu.enabled = true;
         })
     }
 

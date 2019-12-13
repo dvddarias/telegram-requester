@@ -114,26 +114,30 @@ commands:
 - `help`: *string*. The help message explaining what this command does, it is shown on `/help`.
 - `response`: *list*. Parts of the http response that will be included on the response to the command, the possible options are: `"http_code", "params", "body", "headers"`. To skip the response do not include this key.
 - `broadcast`: *list*. Parts of the http response that will be broadcasted to the channel list in the `channels` option, the possible options are: `"http_code", "params", "body", "headers", "username"`. To skip broadcasting to the channels do not include this key.
-- `params_inline`: *list*. This is the list of inline parameters of the command. Each parameter has: `name`-the name of the command, and `help`- the description of the command.  Inline parameters need to be included with the command. For example:
+- `parameters`: *list*. This is the list of parameters of the command. Each parameter has: `type`-the type of parameter, it can be `inline` or `choice`, `name`-the name of the command, and `help`- the description of the command.  
+
+When the type of the parameter is `inline` they all need to be included with the command. For example:
 
 ```yml
 name: "register",
-params_inline:
+parameters:
   -
+    type: inline
     name: "name"
     help: "The name of the user."
   -
+    type: inline
     name: "last_name",
     help: "The last name of the user."
 ```
 
 This is a `/register` command with two inline parameters: `name` and `last_name`. To call this command the message has to include two positional arguments. For example in `/register tony stark`, the value of the parameters are `name:tony` and `last_name:stark` both values will be interpolated in the `request` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
 
-- `params_choice`: *list*. This is the list of choice parameters. Each parameter has: `name`-the name of the command, `help`-message included in the menu and `options`-list of possible options to choose from. Choice parameters are shown as a menu with a list of possible options for each parameter. For example:
+When the type of the parameter is `choice`, choice parameters are shown as a menu with a list of possible options for each parameter, this list is included in a `options` field. For example:
 
 ```yml
 command: "register"
-params_choice:
+parameters:
   -
     name: "name"
     help: "What is your name?"
@@ -146,6 +150,8 @@ params_choice:
 
 This is a `/register` command with two multiple choice parameters: `name` and `last_name`. After calling this command the user will be presented with a menu to choose the value each parameter will have. As with all parameters both values will be interpolated in the `request` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
 
+If the value of the parameter and the name of the option are different you can specify each option as an object with `name` and `value` fields. For Example:
+
 - `confirm`: *boolean*. When `true` it will show a confirm dialog with all the parameter values before running the request.
 
 - `request`: *object*. This object contains all the configuration of the http request. All the http request options are thoroughly documented in [the requests.js options documentation](https://github.com/request/request#requestoptions-callback). This object can optionally include:
@@ -155,14 +161,14 @@ This is a `/register` command with two multiple choice parameters: `name` and `l
       - `query` with the JSONPath string to be used. To test your jsonpaths you can go to [JSON Query Tester](http://www.jsonquerytool.com/) and select *"JSONPath Plus"* as the query type.
       - `format` it can be the string `"list"`(default), to format it as a JSON list or `"path"`: to show human readable values.
 
-All the request parameters declared in `parameters`, `params_inline` and `params_choice` will be interpolated on any of the properties of the `request` object (including the `json_query` field) by using the template syntax `{{{parameter_name}}}`. If you want to make it really easy to generate and test this `request` object, download and install [Postman](https://postman.com/) and use its [code generation option](https://learning.getpostman.com/docs/postman/sending-api-requests/generate-code-snippets/), selecting the `NodeJS -> Request` on the language dropdown.
+All the request parameters declared in `parameters`, will be interpolated on any of the properties of the `request` object (including the `json_query` field) by using the template syntax `{{{parameter_name}}}`. If you want to make it really easy to generate and test this `request` object, download and install [Postman](https://postman.com/) and use its [code generation option](https://learning.getpostman.com/docs/postman/sending-api-requests/generate-code-snippets/), selecting the `NodeJS -> Request` on the language dropdown.
 
 This would be the configuration for command called `example` with one inline parameter that is used as the value of the `X-Username` header and the query string `username` on the http request.
 
 ```yml
 commands:
     example:
-        params_inline:
+        parameters:
           -
             name:"username"
             help:"The name of the user to register"
