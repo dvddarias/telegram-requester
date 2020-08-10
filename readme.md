@@ -26,8 +26,10 @@ To use this bot you need to create a `config.yml` file with the bot details and 
 bot_token: "REPLACE_THIS_WITH_A_VALID_BOT_ID"
 start_message: "This bot is to tryout Telegram Requester"
 help_message: "This is a very simple bot that pings an http api"
-access: [ "SOME_USER_ID" ]
-channels: [ "SOME_CHANNEL_ID" ]
+type: "public"
+allowed: [ "SOME_USER_ID", "SOME_OTHER_USER_ID" ]
+blocked: [ "SOME_USER_ID", "SOME_OTHER_USER_ID" ]
+broadcast_channels: [ "SOME_CHANNEL_ID" ]
 commands:
     ping:
         help: "Check wether he api is listening to the bot."
@@ -54,19 +56,35 @@ BotFather will give you a token, something like `123456789:AbCdfGhIJKlmNoQQRsTUV
 
 ---
 
-`access`: *list*. Ids of the users allowed to interact with the bot.
+`type`: *string*. The bot can be `private`: only users on the allow list can send requests or `public`: any user can send requests
 
-If a user starts a chat with the bot and is not on this list, the bot will send him a message telling that is not allowed and will include the id that needs to be included in the access list.  
+`allow`: *list*. Ids of the users allowed to interact with the bot.
+
+`block`: *list*. Ids of the users blocked from interacting with the bot (even if they are on the allow list).
+
+If a user starts a chat with the bot and is not on the allow list or is in the blocked list, the bot will send him a message telling that is not allowed and will include the id that needs to be included in the access list.  
 
 ---
 
-`channels`: *list*. Ids of the channels the bot will broadcast the command results to. They can be in the form `@mychannel` if public or `-10055734923488` if private.
+`broadcast_channels`: *list*. Ids of the channels the bot will broadcast the command results to. They can be in the form `@mychannel` if public or `-10055734923488` if private.
 
 On each command/request you can specify how the bot will respond to it. With the `broadcast` option you can send parts of the response to a this list of channels.
 
 *Note*: The bot has to be included as an Admin in the channel for it to be able to send messages to it.
 
 *Note*: To get the numeric id of a private channel, include the bot as an Admin and send the command `/id`, the bot will respond with the information of the channel.
+
+---
+
+`listen`: *object*. When this object is included the bot will start an API listening on 'interface':'port'. This will allow you to send custom messages to users or channels from the bot.
+
+*Note*: The bot has to be included as an Admin in the channel for it to be able to send messages to it over this interface.
+
+```yml
+listen:
+  port: 5000
+  interface: 127.0.0.1
+```
 
 ---
 
@@ -113,7 +131,7 @@ commands:
 - `name`: *string*. This is the name of the command in telegram, and the id of the request/command, it must be unique.
 - `help`: *string*. The help message explaining what this command does, it is shown on `/help`.
 - `response`: *list*. Parts of the http response that will be included on the response to the command, the possible options are: `"http_code", "params", "body", "headers"`. To skip the response do not include this key.
-- `broadcast`: *list*. Parts of the http response that will be broadcasted to the channel list in the `channels` option, the possible options are: `"http_code", "params", "body", "headers", "username"`. To skip broadcasting to the channels do not include this key.
+- `broadcast`: *list*. Parts of the http response that will be broadcasted to the channel list in the `broadcast_channels` option, the possible options are: `"http_code", "params", "body", "headers", "username"`. To skip broadcasting to the channels do not include this key.
 - `parameters`: *list*. This is the list of parameters of the command. Each parameter has: `type`-the type of parameter, it can be `inline` or `choice`, `name`-the name of the command, and `help`- the description of the command.  
 
 When the type of the parameter is `inline` they all need to be included with the command. For example:

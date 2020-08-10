@@ -8,6 +8,9 @@ const uuidv1 = require('uuid/v1');
 const yaml = require('js-yaml');
 const fs = require('fs');
 const jp = require('jsonpath-plus').JSONPath;
+const express = require('express')
+const app = express();
+
 
 // check and load configuration
 if (!process.env.CONFIG){
@@ -30,6 +33,11 @@ if (process.env.BOT_TOKEN) bot_config["bot_token"] = process.env.BOT_TOKEN
 //if no global parameters or global headers add empty ones
 if (!bot_config.parameters) bot_config.parameters = {}
 if (!bot_config.headers) bot_config.headers = {}
+if (!bot_config.type) bot_config.type = 'private'
+if (bot_config.listen){
+    if (!bot_config.listen.port) bot_config.listen.port = 3000;
+    if (!bot_config.listen.interface) bot_config.listen.interface = "localhost";
+} 
 //add the name field to each command and empty parameters array
 for (const name in bot_config.commands) {
     if (bot_config.commands.hasOwnProperty(name)){
@@ -129,8 +137,15 @@ function allowed(ctx){
     }
     if (ctx.update[ctx.updateType].from) {
         const user = ctx.update[ctx.updateType].from
-        const access = bot_config["access"]
-        if (access && access.includes(user.id+"")) return true;
+        const allowed = bot_config["allowed"]
+        const blocked = bot_config["blocked"]
+        const is_blocked = blocked && blocked.includes(user.id + "");
+        const is_allowed = allowed && allowed.includes(user.id + "");
+        if (
+            !is_blocked && 
+            (bot_config["type"] === "public" || (bot_config["type"] === "private" && is_allowed))
+        )
+            return true
         else {
             message = "You are not allowed to run any request using this bot.\nContact the bot manager and ask him to include you using the id: " + user.id
             ctx.reply(message, Extra.HTML())            
@@ -143,7 +158,7 @@ function allowed(ctx){
 help = bot_config["help_message"]
 commands_help = ""
 if (help) commands_help = `${help}\n\n`;
-commands_help += "Commands:\n"
+commands_help += "Commands:\n\n"
 
 for (const name in bot_config.commands) {
     if (!bot_config.commands.hasOwnProperty(name)) continue
@@ -153,12 +168,19 @@ for (const name in bot_config.commands) {
 commands_help += "/help Show this help message.\n";
 
 // on help, show te description and the command keyboard
-bot.help((ctx) => ctx.reply(commands_help,
-    Markup.keyboard(keys)
-    .oneTime()
-    .resize()
-    .extra()
-));
+bot.help((ctx) =>{
+        var help = commands_help 
+        if (ctx && ctx.update && ctx.update.message && ctx.update.message.chat && ctx.update.message.chat.id) {
+            help += "\nID: " + ctx.update.message.chat.id;
+        }
+        ctx.reply(help,
+            Markup.keyboard(keys)
+            .oneTime()
+            .resize()
+            .extra()
+        );
+    }
+);
 
 // list of methods and order they will be called in on each command
 const command_middleware = [
@@ -588,12 +610,20 @@ function executeRequest(ctx, next) {
 }
 
 function broadcastRequest(req, username, response, body, view){
-    if (!bot_config.channels || bot_config.channels.length==0) return;
+    if (!bot_config.broadcast_channels || bot_config.broadcast_channels.length == 0) return;
     
     message = getMessageContent(req, username, response, body, view, true);
     if (message == null || message=="") return;
 
-    bot_config["channels"].forEach(channelId => {
+    bot_config["broadcast_channels"].forEach(channelId => {
+        bot.telegram.sendMessage(channelId, message, Extra.HTML())
+    });
+}
+
+
+function sendMessage(message, channelIds) {
+    if (message == null || message == "") return;
+    channelIds.forEach(channelId => {
         bot.telegram.sendMessage(channelId, message, Extra.HTML())
     });
 }
@@ -679,13 +709,58 @@ function getHttpCodeMessage(response) {
 
 bot.catch(function (err) {
     console.log(err);
+    if (!bot.context.botInfo) {
+        console.log("Retrying connection in 10 seconds...")
+        setTimeout(() => {
+            launchBot();
+        }, 10000);
+    }
 });
 
-// Launch bot
-console.log("Connecting to Telegram...")
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.post('/message', (req, res) => {
+    var error = "";
+    if(!req.body.message){
+        error+="The `message` field is required.\n"
+    }
+    if(!req.body.channels){
+        error+="The `channels` list field is required.\n"
+    }
+    if(error===""){
+        sendMessage(req.body.message, req.body.channels);
+        return res.sendStatus(200);
+    }
+    else{
+        return res.status(422).send(error);
+    }
 
-bot.launch().then(()=>{
-    console.log("Connected.")
 })
+
+function startListening() {
+    app.listen(bot_config.listen.port, bot_config.listen.interface, () => {
+        console.log(`Listening at ${bot_config.listen.interface}:${bot_config.listen.port}...`)
+    });    
+}
+// Launch bot
+
+function launchBot(){
+    console.log("Connecting to Telegram...")
+    bot.launch().then(()=>{
+        if (bot.context.botInfo){
+            console.log("Connected.");    
+            if(bot_config.listen) startListening();
+        }
+        else{
+            console.log("Retrying in 10 seconds...")
+            setTimeout(() => {
+                launchBot();
+            }, 10000);
+        }
+    })    
+}
+
+launchBot();
+
 
 
