@@ -130,8 +130,6 @@ commands:
 
 - `name`: *string*. This is the name of the command in telegram, and the id of the request/command, it must be unique.
 - `help`: *string*. The help message explaining what this command does, it is shown on `/help`.
-- `response`: *list*. Parts of the http response that will be included on the response to the command, the possible options are: `"http_code", "params", "body", "headers"`. To skip the response do not include this key.
-- `broadcast`: *list*. Parts of the http response that will be broadcasted to the channel list in the `broadcast_channels` option, the possible options are: `"http_code", "params", "body", "headers", "username"`. To skip broadcasting to the channels do not include this key.
 - `parameters`: *list*. This is the list of parameters of the command. Each parameter has: `type`-the type of parameter, it can be `inline` or `choice`, `name`-the name of the command, and `help`- the description of the command.  
 
 When the type of the parameter is `inline` they all need to be included with the command. For example:
@@ -168,16 +166,11 @@ parameters:
 
 This is a `/register` command with two multiple choice parameters: `name` and `last_name`. After calling this command the user will be presented with a menu to choose the value each parameter will have. As with all parameters both values will be interpolated in the `request` object wherever `{{{name}}}` and `{{{last_name}}}` is found.
 
-If the value of the parameter and the name of the option are different you can specify each option as an object with `name` and `value` fields. For Example:
+If the value of the parameter and the name of the option are different you can specify each option as an object with `name` and `value` fields.
 
 - `confirm`: *boolean*. When `true` it will show a confirm dialog with all the parameter values before running the request.
 
-- `request`: *object*. This object contains all the configuration of the http request. All the http request options are thoroughly documented in [the requests.js options documentation](https://github.com/request/request#requestoptions-callback). This object can optionally include:
-
-  - `json_query`: *object*. In case the response of the request is in JSON format, a [JSONPath](https://github.com/s3u/JSONPath) can be applied to it. This object has two possible keys:
-  
-      - `query` with the JSONPath string to be used. To test your jsonpaths you can go to [JSON Query Tester](http://www.jsonquerytool.com/) and select *"JSONPath Plus"* as the query type.
-      - `format` it can be the string `"list"`(default), to format it as a JSON list or `"path"`: to show human readable values.
+- `request`: *object*. This object contains all the configuration of the http request. All the http request options are thoroughly documented in [the requests.js options documentation](https://github.com/request/request#requestoptions-callback).
 
 All the request parameters declared in `parameters`, will be interpolated on any of the properties of the `request` object (including the `json_query` field) by using the template syntax `{{{parameter_name}}}`. If you want to make it really easy to generate and test this `request` object, download and install [Postman](https://postman.com/) and use its [code generation option](https://learning.getpostman.com/docs/postman/sending-api-requests/generate-code-snippets/), selecting the `NodeJS -> Request` on the language dropdown.
 
@@ -200,12 +193,56 @@ commands:
 
 When sending the command `\example ironman`, the bot will make a request to `https://somewebsite.com/register?username=ironman` with the header `X-Username` set to `ironman`.
 
+- `response`: *object*. This object configures the way the bot will use the http response to answer to the request. To skip the response do not include this key. The response object can have the following options:
+
+  - `include`: *list*. Parts of the http response that will be included on the response to the command, the possible options are: `"username", "http_code", "params", "headers", "command"`. 
+
+  - `body`: *object*. This object configures the way the bot will interpret the body of the response.
+    - `type`: *string*. Specifies the type of the body. The possible options are: `json` for a JSON response, `image` for an image and `http` for an http body. 
+
+    If the body type is an `json` then it can be modified adding:
+
+    - `json_query`: *object*. In case the body of the request response is of type `json`, a [JSONPath](https://github.com/s3u/JSONPath) can be applied to it. This object has two possible keys:
+        - `query` with the JSONPath string to be used. To test your jsonpaths you can go to [JSON Query Tester](http://www.jsonquerytool.com/) and select *"JSONPath Plus"* as the query type.
+        - `format` it can be the string `"list"`(default), to format it as a JSON list or `"path"`: to show human readable values.
+
+    If the body type is `image` then it will send the image as the response.
+
+    If the body type is `html` then it will render the html as an image and send it as the response. You can customize the behavior of the browser using:
+
+      - `viewport`: *object*. Sets the viewport for the html page. Defaults to an 800x600 viewport.
+          - `width`: *number*. page width in pixels.
+          - `height`: *number*. page height in pixels.
+          - `deviceScaleFactor`: *number*. Specify device scale factor (can be thought of as dpr).Defaults to 1.
+          - `isMobile`: *boolean*. Whether the meta viewport tag is taken into account. Defaults to false.
+          - `hasTouch`:*boolean*. Specifies if viewport supports touch events. Defaults to false
+          - `isLandscape`: *boolean*. Specifies if viewport is in landscape mode. Defaults to false.
+
+This would be the configuration for command called `example` with one inline parameter that is used as the value of the `X-Username` header and the query string `username` on the http request.
+
+```yml
+commands:
+    example:
+        parameters:
+          -
+            name:"username"
+            help:"The name of the user to register"
+        request:
+            url: "https://somewebsite.com/register"
+            headers:
+                X-Username: "{{{username}}}"
+            qs:
+                username: "{{{username}}}"
+```
+
+- `broadcast`: *object*. This object configures the way the bot will use the http response to broadcast the request to the channel list in the `broadcast_channels` option. To configure this object you can use the same parameters used in the `response` object. Skip it if you don't want to broadcast the response of the command.
+
 ## Docker
 
 To run it on a docker container mount the `config.yml` file on the `/bot/config.yml` path:
 
 ```bash
-docker run -v `pwd`/config.yml:/bot/config.yml dvdarias/telegram-requester
+docker run -v --init `pwd`/config.yml:/bot/config.yml dvdarias/telegram-requester
 ```
 
 ### Docker-Compose
@@ -214,6 +251,7 @@ docker run -v `pwd`/config.yml:/bot/config.yml dvdarias/telegram-requester
 services:
   bot:
     image: dvdarias/telegram-requester
+    init: true
     volumes:
       - ./config.yml:/bot/config.yml
 ```
