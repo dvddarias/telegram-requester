@@ -2,7 +2,8 @@ version: "2.2"
 
 services:
   bot:
-    image: node:13.1.0-alpine3.10
+    image: buildkite/puppeteer
+    init: true
     container_name: bot
     ports: 
       - 3000:3000

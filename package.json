@@ -5,10 +5,13 @@
   "main": "index.js",
   "dependencies": {
     "express": "^4.17.1",
+    "handlebars": "^4.5.3",
     "js-yaml": "^3.13.1",
     "jsonpath-plus": "^2.0.0",
     "jsonschema": "^1.2.4",
     "mustache": "^3.1.0",
+    "puppeteer": "5.2.1",
+    "puppeteer-cluster": "^0.21.0",
     "request": "^2.88.0",
     "telegraf": "^3.33.3",
     "uuid": "^3.3.3",

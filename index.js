@@ -10,6 +10,7 @@ const fs = require('fs');
 const jp = require('jsonpath-plus').JSONPath;
 const express = require('express')
 const app = express();
+const nodeHtmlToImage = require('./node-html-to-image/src/index')
 
 
 // check and load configuration
@@ -38,6 +39,7 @@ if (bot_config.listen){
     if (!bot_config.listen.port) bot_config.listen.port = 3000;
     if (!bot_config.listen.interface) bot_config.listen.interface = "localhost";
 } 
+
 //add the name field to each command and empty parameters array
 for (const name in bot_config.commands) {
     if (bot_config.commands.hasOwnProperty(name)){
@@ -213,7 +215,9 @@ for (const name in bot_config.commands) {
             ctx.session.activeCommands[uuid] = {
                 uuid: uuid,
                 req: JSON.parse(JSON.stringify(req)), //store a copy of the request, it may be modified by dynamic choices
-                view: {}, 
+                view: {
+                    __pretty_name__: {}
+                }, 
                 default_view: JSON.parse(JSON.stringify(bot_config.parameters)), //store a copy of the default parameters
                 username: getUserName(ctx),
                 menu: {
@@ -262,7 +266,8 @@ function processInlineParameters(ctx, next){
             else {
                 for (let i = 0; i < inline.length; i++) {
                     const param = inline[i];
-                    command.view[param.name] = args[i]
+                    command.view[param.name] = args[i];
+                    command.view.__pretty_name__[param.name] = args[i];
                 }
                 return next()
             }
@@ -305,7 +310,7 @@ function processChoiceParameters(ctx, next) {
                 }
             }
 
-            keyboard.push(Markup.callbackButton("❌ Cancel Request", `${command.uuid},${command.menu.step},${-1}`))
+            keyboard.push(Markup.callbackButton("❌ Cancel", `${command.uuid},${command.menu.step},${-1}`))
 
             function wrap(btn, index, currentRow) {
                 return currentRow.length == 2 || index == keyboard.length - 1
@@ -378,12 +383,13 @@ function getOptions(options, command){
                 }
             }
             options_string = Mustache.render(options_string, render_view);
+            options_object = JSON.parse(options_string);
 
-            request(JSON.parse(options_string), (error, response, body) => {
+            request(options_object, (error, response, body) => {
                 if (error) {
                     reject(error)                   
                 } else {
-                    resolve(JSON.parse(getResponseBody(command.req, body)))
+                    resolve(JSON.parse(processJSONResponse(options_object.json_query, body)))
                 }
             });
         }
@@ -448,6 +454,7 @@ bot.use((ctx, next) => {
                     //set the selected choice in the view and increase the step
                     const choice = command.req.parameters[menu_index];
                     command.view[choice.name] = choice.options[option_index].value;
+                    command.view.__pretty_name__[choice.name] = choice.options[option_index].name;
                     command.menu.step += 1;
                     return next()
                 }
@@ -460,7 +467,8 @@ bot.use((ctx, next) => {
         ctx.session.waiting = false;
         //set the selected choice in the view and increase the step
         const question = command.req.parameters[command.menu.step];
-        command.view[question.name] = ctx.update.message.text
+        command.view[question.name] = ctx.update.message.text;
+        command.view.__pretty_name__[question.name] = ctx.update.message.text;
         command.menu.step += 1;
         return next()
     }
@@ -566,14 +574,15 @@ function executeRequest(ctx, next) {
     options_string = Mustache.render(options_string, render_view);
     req.request = JSON.parse(options_string)
 
-    if (!req.request.headers) req.request.headers={}
-    //include default headers in the request
-    for (const header in bot_config.headers) {
-        if (bot_config.headers.hasOwnProperty(header) && !req.request.headers.hasOwnProperty(header)) {
-            req.request.headers[header] = bot_config.headers[header]
-        }
-    }
+    // if (!req.request.headers) req.request.headers={}
+    // //include default headers in the request
+    // for (const header in bot_config.headers) {
+    //     if (bot_config.headers.hasOwnProperty(header) && !req.request.headers.hasOwnProperty(header)) {
+    //         req.request.headers[header] = bot_config.headers[header]
+    //     }
+    // }
 
+    // req.request.rejectUnauthorized = false;
     request(req.request, (error, response, body) => {
 
         if (error) {
@@ -589,19 +598,38 @@ function executeRequest(ctx, next) {
                 Extra.HTML())
         }
         else {
-            message = getMessageContent(req, command.username, response, body, view, false);
-            if (message != null && message != "") ctx.reply(message, Extra.HTML())
-            broadcastRequest(req, command.username, response, body, view);
-
-            edit_message_promise.then((results)=>{
-                bot.telegram.editMessageText(
-                    command.menu.chat_id,
-                    command.menu.message_id,
-                    null,
-                    `✅ /${command.req.name} done.\n${getParamList(view)}`,
-                    Extra.HTML())                            
-            })
-            
+            getMessageContent(req, command.username, response, body, view, false).then((message_content)=>{
+                if (message_content != null) {
+                    message = message_content.message;
+                    image = message_content.image;
+                    if(message!=""){
+                        if(image!=null){
+                            ctx.replyWithPhoto(
+                            image,
+                            Extra.caption(message).HTML()
+                            );
+                        }
+                        else{
+                            ctx.reply(message, Extra.HTML());
+                        }
+                    }
+                    else if(image != null){
+                        ctx.replyWithPhoto(
+                            image
+                        );
+                    }
+                }
+                broadcastRequest(req, command.username, response, body, view);
+    
+                edit_message_promise.then((results)=>{
+                    bot.telegram.editMessageText(
+                        command.menu.chat_id,
+                        command.menu.message_id,
+                        null,
+                        `✅ /${command.req.name} done.\n${getParamList(view)}`,
+                        Extra.HTML())                            
+                })
+            });
         }
 
         delete ctx.session.activeCommands[command.uuid];
@@ -612,11 +640,35 @@ function executeRequest(ctx, next) {
 function broadcastRequest(req, username, response, body, view){
     if (!bot_config.broadcast_channels || bot_config.broadcast_channels.length == 0) return;
     
-    message = getMessageContent(req, username, response, body, view, true);
-    if (message == null || message=="") return;
-
-    bot_config["broadcast_channels"].forEach(channelId => {
-        bot.telegram.sendMessage(channelId, message, Extra.HTML())
+    getMessageContent(req, username, response, body, view, true).then((message_content)=>{
+        bot_config["broadcast_channels"].forEach(channelId => {
+            if (message_content != null) {
+                message = message_content.message;
+                image = message_content.image;
+                if (message != "") {
+                    if (image != null) {
+                        bot.telegram.sendPhoto(
+                            channelId,
+                            image,
+                            Extra.caption(message).HTML()
+                        );
+                    } else {
+                        bot.telegram.sendMessage(
+                            channelId,
+                            message, 
+                            Extra.HTML()
+                        );
+                    }
+                } else if (image != null) {
+                    bot.telegram.sendPhoto(
+                        channelId,
+                        image
+                    );
+                }
+            }
+    
+            bot.telegram.sendMessage(channelId, message, Extra.HTML())
+        });
     });
 }
 
@@ -629,29 +681,53 @@ function sendMessage(message, channelIds) {
 }
 
 function getMessageContent(req, username, response, body, view, is_broadcast){
-    content = is_broadcast?req.broadcast:req.response;    
-    message = ""
-    if(!content) return message;
-    if(is_broadcast){
-        message += `📢 <b>/${req.name}</b> was called`;
-        if (content.includes("username")) message = `${message} by <b>${username}</b>`
-        message = `${message}.\n`
-    }    
-    if (content.includes("params")) message += getParamList(view)
-    if (content.includes("http_code")) message += getHttpCodeMessage(response)
-    if (content.includes("headers")) message += getHttpHeaders(response)
-    if (content.includes("body")) message += `📦 Response:\n${getResponseBody(req, body)}\n`
-
-    return message
+    return new Promise((resolve, reject) => {
+        response_config = is_broadcast?req.broadcast:req.response;    
+        result = {
+            message: "",
+            image: null
+        };
+        if (!response_config) return result;
+        if (response_config.include){
+            if (response_config.include.includes("command")) result.message += `📢 <b>/${req.name}</b> called\n`;
+            if (response_config.include.includes("username")) result.message += `by: <b>${username}</b>\n`
+            if (response_config.include.includes("params")) result.message += getParamList(view)
+            if (response_config.include.includes("http_code")) result.message += getHttpCodeMessage(response)
+            if (response_config.include.includes("headers")) result.message += getHttpHeaders(response)
+        }
+        if(response_config.body){
+            if (response_config.body.type === "json") {
+                result.message += `📦 Response:\n${processJSONResponse(response_config.body.json_query, body)}\n`
+                resolve(result);
+            }
+            else if (response_config.body.type === "image") {
+                result.image = { url: req.request.url }
+                resolve(result);
+            }
+            else if (response_config.body.type === "html") {
+                nodeHtmlToImage({
+                    url: req.request.url,
+                    waitUntil: ["load"],
+                    puppeteerArgs:{ 
+                        args:["--no-sandbox"],
+                        defaultViewport: response_config.body.viewport,
+                    } 
+                }).then((image)=>{
+                    result.image = { source: image }
+                    resolve(result);
+                });
+            }
+        }        
+    });
 }
 
-function getResponseBody(req, body){
+function processJSONResponse(json_query, body){
     var response_body = body
 
-    if(req.request.json_query){        
-        var format = req.request.json_query.format
+    if(json_query){        
+        var format = json_query.format
         if(!format) format = "list"
-        const query = req.request.json_query.query
+        const query = json_query.query
 
         const paths = jp( { json: JSON.parse(body), path: query, resultType: "all" } );
 
@@ -677,8 +753,8 @@ function getResponseBody(req, body){
 function getParamList(view) {
     message = "";
     for (const param in view) {
-        if (view.hasOwnProperty(param)) {
-            const value = view[param];
+        if (view.hasOwnProperty(param) && param != "__pretty_name__") {
+            const value = view.__pretty_name__[param];
             message += `🏷 <b>${param}</b>: ${value}\n`
         }
     }
