@@ -574,13 +574,13 @@ function executeRequest(ctx, next) {
     options_string = Mustache.render(options_string, render_view);
     req.request = JSON.parse(options_string)
 
-    // if (!req.request.headers) req.request.headers={}
-    // //include default headers in the request
-    // for (const header in bot_config.headers) {
-    //     if (bot_config.headers.hasOwnProperty(header) && !req.request.headers.hasOwnProperty(header)) {
-    //         req.request.headers[header] = bot_config.headers[header]
-    //     }
-    // }
+    if (!req.request.headers) req.request.headers={}
+    //include default headers in the request
+    for (const header in bot_config.headers) {
+        if (bot_config.headers.hasOwnProperty(header) && !req.request.headers.hasOwnProperty(header)) {
+            req.request.headers[header] = bot_config.headers[header]
+        }
+    }
 
     // req.request.rejectUnauthorized = false;
     request(req.request, (error, response, body) => {
