@@ -10,5 +10,6 @@ COPY package.json .
 COPY package-lock.json .
 RUN npm install
 COPY index.js .
+COPY node-html-to-image ./node-html-to-image
 
 CMD ["node", "index.js"]
