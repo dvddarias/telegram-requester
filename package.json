@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "dependencies": {
-    "express": "^4.17.1",
+    "express": "^4.17.3",
     "handlebars": "^4.5.3",
     "js-yaml": "^3.13.1",
     "jsonpath-plus": "^2.0.0",
